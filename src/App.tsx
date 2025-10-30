@@ -385,9 +385,9 @@ function App() {
     const markets = new Set<string>()
     matches.forEach(match => {
       if (match.h2h) markets.add('1X2')
-      if (match.spread) markets.add('Spread')
-      if (match.totals) markets.add('Totals')
+      if (match.totals) markets.add('Over/Under')
     })
+    markets.add('GG/NG (API not supported)')
     return Array.from(markets).join(', ') || 'Loading...'
   }
 
@@ -548,69 +548,45 @@ function App() {
                     </div>
                   )}
 
-                  {/* Spread Market */}
-                  {match.spread ? (
-                    <div className="mb-3">
-                      <div className="text-gray-400 text-xs mb-2 font-medium">
-                        Spread ({match.spread.point >= 0 ? '+' : ''}{match.spread.point.toFixed(1)})
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => addToBetSlip(match, 'spreads', 'home', match.spread!.home, match.spread!.point)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-3 font-bold transition text-sm"
-                        >
-                          <div className="text-xs mb-1 truncate">{match.homeTeam.substring(0, 12)}</div>
-                          <div>{match.spread.home.toFixed(2)}</div>
-                        </button>
-                        <button
-                          onClick={() => addToBetSlip(match, 'spreads', 'away', match.spread!.away, match.spread!.point)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-3 font-bold transition text-sm"
-                        >
-                          <div className="text-xs mb-1 truncate">{match.awayTeam.substring(0, 12)}</div>
-                          <div>{match.spread.away.toFixed(2)}</div>
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mb-3">
-                      <div className="text-gray-400 text-xs mb-2 font-medium">Spread</div>
-                      <div className="bg-gray-700 rounded-lg p-3 text-center">
-                        <span className="text-gray-500 text-sm">Not available</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Totals Market */}
+                  {/* Over/Under Market */}
                   {match.totals ? (
-                    <div className="mb-2">
+                    <div className="mb-3">
                       <div className="text-gray-400 text-xs mb-2 font-medium">
-                        Totals ({match.totals.point})
+                        Over/Under ({match.totals.point})
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => addToBetSlip(match, 'totals', 'over', match.totals!.over, match.totals!.point)}
                           className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg p-3 font-bold transition text-sm"
                         >
-                          <div className="text-xs mb-1">Over</div>
+                          <div className="text-xs mb-1">Over {match.totals.point}</div>
                           <div>{match.totals.over.toFixed(2)}</div>
                         </button>
                         <button
                           onClick={() => addToBetSlip(match, 'totals', 'under', match.totals!.under, match.totals!.point)}
                           className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg p-3 font-bold transition text-sm"
                         >
-                          <div className="text-xs mb-1">Under</div>
+                          <div className="text-xs mb-1">Under {match.totals.point}</div>
                           <div>{match.totals.under.toFixed(2)}</div>
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="mb-2">
-                      <div className="text-gray-400 text-xs mb-2 font-medium">Totals</div>
+                    <div className="mb-3">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">Over/Under</div>
                       <div className="bg-gray-700 rounded-lg p-3 text-center">
                         <span className="text-gray-500 text-sm">Not available</span>
                       </div>
                     </div>
                   )}
+
+                  {/* GG/NG Market - Not supported by API */}
+                  <div className="mb-2">
+                    <div className="text-gray-400 text-xs mb-2 font-medium">GG/NG (Both Teams to Score)</div>
+                    <div className="bg-gray-700 rounded-lg p-3 text-center">
+                      <span className="text-gray-500 text-sm">Not supported by API</span>
+                    </div>
+                  </div>
                 </Card>
               ))}
             </div>
