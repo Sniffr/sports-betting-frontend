@@ -1,0 +1,817 @@
+import { useState, useEffect } from 'react'
+import './App.css'
+import { X, TrendingUp, RefreshCw } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
+
+const API_KEY = 'a3b186794403af630516172e9184ef1f'
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+interface Selection {
+  id: string
+  matchId: string
+  match: string
+  selection: string
+  odds: number
+  market: 'h2h' | 'spreads' | 'totals'
+  side: 'home' | 'away' | 'draw' | 'over' | 'under'
+  point?: number
+}
+
+interface PendingBet {
+  id: string
+  selections: Selection[]
+  stake: number
+  potentialWin: number
+  placedAt: Date
+}
+
+interface MarketOdds {
+  home: number
+  draw?: number
+  away: number
+}
+
+interface SpreadOdds {
+  point: number
+  home: number
+  away: number
+}
+
+interface TotalsOdds {
+  point: number
+  over: number
+  under: number
+}
+
+interface Match {
+  id: string
+  league: string
+  homeTeam: string
+  awayTeam: string
+  time: string
+  h2h?: MarketOdds
+  spread?: SpreadOdds
+  totals?: TotalsOdds
+}
+
+interface League {
+  key: string
+  title: string
+}
+
+interface CachedData {
+  data: Match[]
+  fetchedAt: number
+  region: string
+}
+
+function App() {
+  const [balance, setBalance] = useState(50000)
+  const [betSlip, setBetSlip] = useState<Selection[]>([])
+  const [stake, setStake] = useState(100)
+  const [simulations, setSimulations] = useState(1)
+  const [isSimulating, setIsSimulating] = useState(false)
+  const [isSimMode, setIsSimMode] = useState(true)
+  const [pendingBets, setPendingBets] = useState<PendingBet[]>([])
+  const [matches, setMatches] = useState<Match[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastFetch, setLastFetch] = useState<number>(0)
+  const [requestsRemaining, setRequestsRemaining] = useState<number | null>(null)
+  const [leagues, setLeagues] = useState<League[]>([])
+  const [activeLeagueKey, setActiveLeagueKey] = useState<string>('soccer_epl')
+  const [cache, setCache] = useState<Record<string, CachedData>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('oddsCache') || '{}')
+    } catch {
+      return {}
+    }
+  })
+
+  const addToBetSlip = (match: Match, market: 'h2h' | 'spreads' | 'totals', side: 'home' | 'away' | 'draw' | 'over' | 'under', odds: number, point?: number) => {
+    let selectionText = ''
+    
+    if (market === 'h2h') {
+      selectionText = side === 'home' ? match.homeTeam : side === 'draw' ? 'Draw' : match.awayTeam
+    } else if (market === 'spreads') {
+      const displayPoint = side === 'home' ? point! : -point!
+      const sign = displayPoint >= 0 ? '+' : ''
+      selectionText = `${side === 'home' ? match.homeTeam : match.awayTeam} ${sign}${displayPoint.toFixed(1)}`
+    } else if (market === 'totals') {
+      selectionText = `${side === 'over' ? 'Over' : 'Under'} ${point}`
+    }
+    
+    const newSelection: Selection = {
+      id: `${match.id}-${market}-${side}-${point || 0}`,
+      matchId: match.id,
+      match: `${match.homeTeam} vs ${match.awayTeam}`,
+      selection: selectionText,
+      odds: odds,
+      market: market,
+      side: side,
+      point: point
+    }
+
+    const exists = betSlip.find(s => s.id === newSelection.id)
+    if (!exists) {
+      setBetSlip([...betSlip, newSelection])
+    }
+  }
+
+  const removeFromBetSlip = (id: string) => {
+    setBetSlip(betSlip.filter(s => s.id !== id))
+  }
+
+  const calculateTotalOdds = () => {
+    if (betSlip.length === 0) return 0
+    return betSlip.reduce((acc, sel) => acc * sel.odds, 1)
+  }
+
+  const calculatePotentialWin = () => {
+    return stake * calculateTotalOdds()
+  }
+
+  const runSimulation = () => {
+    if (betSlip.length === 0 || stake <= 0) return
+
+    setIsSimulating(true)
+
+    setTimeout(() => {
+      if (isSimMode) {
+        const results = []
+        for (let i = 0; i < simulations; i++) {
+          const won = Math.random() < 0.3
+          results.push(won)
+        }
+
+        const wins = results.filter(r => r).length
+        const losses = results.length - wins
+
+        const totalStake = stake * simulations
+        const totalWinnings = wins * calculatePotentialWin()
+        const netProfit = totalWinnings - totalStake
+
+        setBalance(balance + netProfit)
+        
+        setBetSlip([])
+        setIsSimulating(false)
+
+        alert(`Simulation Complete!\n\nWins: ${wins}\nLosses: ${losses}\nTotal Stake: KES ${totalStake.toFixed(2)}\nTotal Winnings: KES ${totalWinnings.toFixed(2)}\nNet Profit: KES ${netProfit.toFixed(2)}\n\nNew Balance: KES ${(balance + netProfit).toFixed(2)}`)
+      } else {
+        const newBet: PendingBet = {
+          id: Date.now().toString(),
+          selections: [...betSlip],
+          stake: stake,
+          potentialWin: calculatePotentialWin(),
+          placedAt: new Date()
+        }
+        
+        setBalance(balance - stake)
+        setPendingBets([...pendingBets, newBet])
+        setBetSlip([])
+        setIsSimulating(false)
+        
+        alert(`Bet Placed!\n\nYour bet has been placed successfully.\nStake: KES ${stake.toFixed(2)}\nPotential Win: KES ${calculatePotentialWin().toFixed(2)}\n\nStake deducted from balance.\nWaiting for match results...\n\nNew Balance: KES ${(balance - stake).toFixed(2)}`)
+      }
+    }, 1000)
+  }
+
+  const settleBet = (betId: string, won: boolean) => {
+    const bet = pendingBets.find(b => b.id === betId)
+    if (!bet) return
+
+    if (won) {
+      setBalance(balance + bet.potentialWin)
+      alert(`Bet Won!\n\nStake: KES ${bet.stake.toFixed(2)}\nWinnings: KES ${bet.potentialWin.toFixed(2)}\nProfit: KES ${(bet.potentialWin - bet.stake).toFixed(2)}\n\nNew Balance: KES ${(balance + bet.potentialWin).toFixed(2)}`)
+    } else {
+      alert(`Bet Lost!\n\nStake: KES ${bet.stake.toFixed(2)}\nLoss: KES ${bet.stake.toFixed(2)}\n\nBalance: KES ${balance.toFixed(2)}`)
+    }
+
+    setPendingBets(pendingBets.filter(b => b.id !== betId))
+  }
+
+  const resetBalance = () => {
+    setBalance(50000)
+    setBetSlip([])
+    setPendingBets([])
+  }
+
+  const fetchLeagues = async () => {
+    try {
+      const response = await fetch(
+        `https://api.the-odds-api.com/v4/sports?api_key=${API_KEY}`
+      )
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const soccerLeagues = data
+        .filter((sport: any) => sport.group === 'Soccer' && sport.active && !sport.has_outrights)
+        .slice(0, 10)
+        .map((sport: any) => ({
+          key: sport.key,
+          title: sport.title
+        }))
+
+      setLeagues(soccerLeagues)
+    } catch (err) {
+      console.error('Failed to fetch leagues:', err)
+    }
+  }
+
+  const selectBestBookmaker = (bookmakers: any[]) => {
+    let bestBookmaker = null
+    let bestScore = -1
+
+    for (const bookmaker of bookmakers) {
+      let score = 0
+      const markets = bookmaker.markets || []
+      
+      const h2h = markets.find((m: any) => m.key === 'h2h')
+      const spreads = markets.find((m: any) => m.key === 'spreads')
+      const totals = markets.find((m: any) => m.key === 'totals')
+
+      if (h2h && h2h.outcomes?.length >= 2) score += 1
+      if (spreads && spreads.outcomes?.length >= 2 && spreads.outcomes[0]?.point !== undefined) score += 1
+      if (totals && totals.outcomes?.length >= 2 && totals.outcomes[0]?.point !== undefined) score += 1
+
+      if (score > bestScore) {
+        bestScore = score
+        bestBookmaker = bookmaker
+      }
+    }
+
+    return bestBookmaker
+  }
+
+  const fetchOdds = async (leagueKey?: string, forceRefresh = false) => {
+    const targetLeague = leagueKey || activeLeagueKey
+    
+    if (!forceRefresh && cache[targetLeague]) {
+      const cached = cache[targetLeague]
+      const age = Date.now() - cached.fetchedAt
+      if (age < CACHE_TTL) {
+        setMatches(cached.data)
+        setLastFetch(cached.fetchedAt)
+        return
+      }
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(
+        `https://api.the-odds-api.com/v4/sports/${targetLeague}/odds?api_key=${API_KEY}&regions=uk&markets=h2h,spreads,totals&oddsFormat=decimal&dateFormat=iso`
+      )
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const remaining = response.headers.get('x-requests-remaining')
+      if (remaining) {
+        setRequestsRemaining(parseInt(remaining))
+      }
+
+      const transformedMatches: Match[] = data.slice(0, 6).map((event: any) => {
+        const bookmaker = selectBestBookmaker(event.bookmakers || [])
+        
+        const h2hMarket = bookmaker?.markets?.find((m: any) => m.key === 'h2h')
+        const spreadsMarket = bookmaker?.markets?.find((m: any) => m.key === 'spreads')
+        const totalsMarket = bookmaker?.markets?.find((m: any) => m.key === 'totals')
+
+        const commenceTime = new Date(event.commence_time)
+        const timeStr = commenceTime.toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+
+        const match: Match = {
+          id: event.id,
+          league: event.sport_title,
+          homeTeam: event.home_team,
+          awayTeam: event.away_team,
+          time: timeStr
+        }
+
+        if (h2hMarket) {
+          const homeOutcome = h2hMarket.outcomes?.find((o: any) => o.name === event.home_team)
+          const awayOutcome = h2hMarket.outcomes?.find((o: any) => o.name === event.away_team)
+          const drawOutcome = h2hMarket.outcomes?.find((o: any) => o.name === 'Draw')
+
+          if (homeOutcome && awayOutcome) {
+            match.h2h = {
+              home: homeOutcome.price || 2.0,
+              draw: drawOutcome?.price,
+              away: awayOutcome.price || 2.0
+            }
+          }
+        }
+
+        if (spreadsMarket && spreadsMarket.outcomes?.length >= 2) {
+          const homeOutcome = spreadsMarket.outcomes.find((o: any) => o.name === event.home_team)
+          const awayOutcome = spreadsMarket.outcomes.find((o: any) => o.name === event.away_team)
+
+          if (homeOutcome && awayOutcome && homeOutcome.point !== undefined) {
+            match.spread = {
+              point: homeOutcome.point,
+              home: homeOutcome.price || 2.0,
+              away: awayOutcome.price || 2.0
+            }
+          }
+        }
+
+        if (totalsMarket && totalsMarket.outcomes?.length >= 2) {
+          const overOutcome = totalsMarket.outcomes.find((o: any) => o.name === 'Over')
+          const underOutcome = totalsMarket.outcomes.find((o: any) => o.name === 'Under')
+
+          if (overOutcome && underOutcome && overOutcome.point !== undefined) {
+            match.totals = {
+              point: overOutcome.point,
+              over: overOutcome.price || 2.0,
+              under: underOutcome.price || 2.0
+            }
+          }
+        }
+
+        return match
+      })
+
+      setMatches(transformedMatches)
+      const now = Date.now()
+      setLastFetch(now)
+
+      const newCache = {
+        ...cache,
+        [targetLeague]: {
+          data: transformedMatches,
+          fetchedAt: now,
+          region: 'uk'
+        }
+      }
+      setCache(newCache)
+      localStorage.setItem('oddsCache', JSON.stringify(newCache))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch odds')
+      setMatches([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchLeagues()
+  }, [])
+
+  useEffect(() => {
+    if (leagues.length > 0) {
+      fetchOdds()
+    }
+  }, [activeLeagueKey, leagues])
+
+  const handleLeagueChange = (leagueKey: string) => {
+    setActiveLeagueKey(leagueKey)
+    setError(null)
+  }
+
+  const getAvailableMarkets = () => {
+    const markets = new Set<string>()
+    matches.forEach(match => {
+      if (match.h2h) markets.add('1X2')
+      if (match.spread) markets.add('Spread')
+      if (match.totals) markets.add('Totals')
+    })
+    return Array.from(markets).join(', ') || 'Loading...'
+  }
+
+  const getTimeSinceLastFetch = () => {
+    if (!lastFetch) return ''
+    const seconds = Math.floor((Date.now() - lastFetch) / 1000)
+    if (seconds < 60) return `${seconds}s ago`
+    const minutes = Math.floor(seconds / 60)
+    return `${minutes}m ago`
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900">
+      {/* Header */}
+      <header className="bg-red-600 text-white p-4 shadow-lg">
+        <div className="container mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={32} />
+            <h1 className="text-2xl font-bold">Super Bet</h1>
+            <div className="flex flex-col ml-2">
+              {requestsRemaining !== null && (
+                <span className="text-xs opacity-70">
+                  API: {requestsRemaining} requests left
+                </span>
+              )}
+              {lastFetch > 0 && (
+                <span className="text-xs opacity-60">
+                  Updated {getTimeSinceLastFetch()}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="bg-red-700 px-4 py-2 rounded-lg">
+              <span className="text-sm opacity-80">Balance</span>
+              <div className="text-xl font-bold">KES {balance.toFixed(2)}</div>
+            </div>
+            <Button 
+              onClick={() => fetchOdds(activeLeagueKey, true)}
+              disabled={isLoading}
+              variant="outline"
+              className="bg-white text-red-600 hover:bg-gray-100"
+            >
+              <RefreshCw size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              {isLoading ? 'Loading...' : 'Refresh'}
+            </Button>
+            <Button 
+              onClick={resetBalance}
+              variant="outline"
+              className="bg-white text-red-600 hover:bg-gray-100"
+            >
+              <RefreshCw size={16} className="mr-2" />
+              Reset
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="container mx-auto p-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Games Section */}
+          <div className="lg:col-span-2">
+            <div className="bg-gray-800 rounded-lg p-4 mb-4">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-white text-xl font-bold">Football Leagues</h2>
+                <div className="text-sm text-gray-400">
+                  Markets: {getAvailableMarkets()}
+                </div>
+              </div>
+              <div className="flex gap-2 mb-2 overflow-x-auto pb-2">
+                {leagues.map(league => (
+                  <button
+                    key={league.key}
+                    onClick={() => handleLeagueChange(league.key)}
+                    className={`px-4 py-2 rounded-lg whitespace-nowrap transition font-medium ${
+                      activeLeagueKey === league.key
+                        ? 'bg-green-600 text-white shadow-lg'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    {league.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="bg-red-900 border border-red-700 text-red-200 p-4 rounded-lg mb-4">
+                {error}
+              </div>
+            )}
+
+            {/* Loading State */}
+            {isLoading && (
+              <div className="bg-gray-800 border border-gray-700 text-gray-300 p-4 rounded-lg mb-4 text-center">
+                Loading live odds...
+              </div>
+            )}
+
+            {/* Matches */}
+            <div className="space-y-4">
+              {matches.map(match => (
+                <Card key={match.id} className="bg-gray-800 border-gray-700 p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <div className="text-gray-400 text-xs mb-1">{match.league}</div>
+                      <div className="text-gray-400 text-xs mb-2">{match.time}</div>
+                    </div>
+                  </div>
+                  <div className="text-white font-semibold mb-4 text-base">
+                    <div className="mb-1">{match.homeTeam}</div>
+                    <div className="text-gray-400 text-xs mb-1">vs</div>
+                    <div>{match.awayTeam}</div>
+                  </div>
+
+                  {/* 1X2 Market */}
+                  {match.h2h ? (
+                    <div className="mb-3">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">1X2</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => addToBetSlip(match, 'h2h', 'home', match.h2h!.home)}
+                          className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-3 font-bold transition"
+                        >
+                          <div className="text-xs mb-1">1</div>
+                          <div>{match.h2h.home.toFixed(2)}</div>
+                        </button>
+                        {match.h2h.draw ? (
+                          <button
+                            onClick={() => addToBetSlip(match, 'h2h', 'draw', match.h2h!.draw!)}
+                            className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-3 font-bold transition"
+                          >
+                            <div className="text-xs mb-1">X</div>
+                            <div>{match.h2h.draw.toFixed(2)}</div>
+                          </button>
+                        ) : (
+                          <div className="bg-gray-700 rounded-lg p-3 flex items-center justify-center">
+                            <span className="text-gray-500 text-xs">N/A</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => addToBetSlip(match, 'h2h', 'away', match.h2h!.away)}
+                          className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-3 font-bold transition"
+                        >
+                          <div className="text-xs mb-1">2</div>
+                          <div>{match.h2h.away.toFixed(2)}</div>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-3">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">1X2</div>
+                      <div className="bg-gray-700 rounded-lg p-3 text-center">
+                        <span className="text-gray-500 text-sm">Not available</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Spread Market */}
+                  {match.spread ? (
+                    <div className="mb-3">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">
+                        Spread ({match.spread.point >= 0 ? '+' : ''}{match.spread.point.toFixed(1)})
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => addToBetSlip(match, 'spreads', 'home', match.spread!.home, match.spread!.point)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-3 font-bold transition text-sm"
+                        >
+                          <div className="text-xs mb-1 truncate">{match.homeTeam.substring(0, 12)}</div>
+                          <div>{match.spread.home.toFixed(2)}</div>
+                        </button>
+                        <button
+                          onClick={() => addToBetSlip(match, 'spreads', 'away', match.spread!.away, match.spread!.point)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-3 font-bold transition text-sm"
+                        >
+                          <div className="text-xs mb-1 truncate">{match.awayTeam.substring(0, 12)}</div>
+                          <div>{match.spread.away.toFixed(2)}</div>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-3">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">Spread</div>
+                      <div className="bg-gray-700 rounded-lg p-3 text-center">
+                        <span className="text-gray-500 text-sm">Not available</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Totals Market */}
+                  {match.totals ? (
+                    <div className="mb-2">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">
+                        Totals ({match.totals.point})
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => addToBetSlip(match, 'totals', 'over', match.totals!.over, match.totals!.point)}
+                          className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg p-3 font-bold transition text-sm"
+                        >
+                          <div className="text-xs mb-1">Over</div>
+                          <div>{match.totals.over.toFixed(2)}</div>
+                        </button>
+                        <button
+                          onClick={() => addToBetSlip(match, 'totals', 'under', match.totals!.under, match.totals!.point)}
+                          className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg p-3 font-bold transition text-sm"
+                        >
+                          <div className="text-xs mb-1">Under</div>
+                          <div>{match.totals.under.toFixed(2)}</div>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-2">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">Totals</div>
+                      <div className="bg-gray-700 rounded-lg p-3 text-center">
+                        <span className="text-gray-500 text-sm">Not available</span>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </div>
+          </div>
+
+          {/* Betslip Section */}
+          <div className="lg:col-span-1">
+            <Card className="bg-gray-800 border-gray-700 sticky top-4">
+              <div className="bg-gray-700 p-4 rounded-t-lg">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-white font-bold">Betslip</h3>
+                </div>
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={() => setIsSimMode(false)}
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition ${
+                      !isSimMode 
+                        ? 'bg-green-600 text-white' 
+                        : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                    }`}
+                  >
+                    Real
+                  </button>
+                  <button
+                    onClick={() => setIsSimMode(true)}
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition ${
+                      isSimMode 
+                        ? 'bg-yellow-500 text-black' 
+                        : 'bg-gray-600 text-gray-300 hover:bg-gray-500'
+                    }`}
+                  >
+                    Sim
+                  </button>
+                </div>
+                <div className={`text-xs mt-2 ${isSimMode ? 'text-yellow-400' : 'text-green-400'}`}>
+                  {isSimMode 
+                    ? 'Place bets with virtually simulated results' 
+                    : 'Place real bets with actual balance'}
+                </div>
+              </div>
+
+              <div className="p-4">
+                {betSlip.length === 0 ? (
+                  <div className="text-gray-400 text-center py-8">
+                    Click on odds to add selections
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {betSlip.map(selection => (
+                      <div key={selection.id} className="bg-gray-700 p-3 rounded-lg">
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="flex-1">
+                            <div className="text-white text-sm font-medium">{selection.selection}</div>
+                            <div className="text-gray-400 text-xs">{selection.match}</div>
+                            <div className="text-gray-500 text-xs capitalize">{selection.market}</div>
+                          </div>
+                          <button
+                            onClick={() => removeFromBetSlip(selection.id)}
+                            className="text-gray-400 hover:text-white"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                        <div className="text-green-400 font-bold">{selection.odds.toFixed(2)}</div>
+                      </div>
+                    ))}
+
+                    <div className="border-t border-gray-600 pt-3 mt-3">
+                      <div className="mb-3">
+                        <label className="text-gray-400 text-sm block mb-1">Stake (KES)</label>
+                        <input
+                          type="number"
+                          value={stake}
+                          onChange={(e) => setStake(Number(e.target.value))}
+                          className="w-full bg-gray-700 text-white p-2 rounded-lg"
+                          min="1"
+                        />
+                      </div>
+
+                      {isSimMode && (
+                        <div className="mb-3">
+                          <label className="text-gray-400 text-sm block mb-1">Times to Simulate</label>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setSimulations(Math.max(1, simulations - 1))}
+                              className="bg-gray-700 text-white px-3 py-2 rounded-lg"
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              value={simulations}
+                              onChange={(e) => setSimulations(Math.max(1, Number(e.target.value)))}
+                              className="flex-1 bg-gray-700 text-white p-2 rounded-lg text-center"
+                              min="1"
+                            />
+                            <button
+                              onClick={() => setSimulations(simulations + 1)}
+                              className="bg-green-600 text-white px-3 py-2 rounded-lg"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="bg-gray-700 p-3 rounded-lg mb-3">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-400">Total Odds</span>
+                          <span className="text-white font-bold">{calculateTotalOdds().toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-400">{isSimMode ? 'Total Stake' : 'Stake'}</span>
+                          <span className="text-white font-bold">KES {(isSimMode ? stake * simulations : stake).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-400">{isSimMode ? 'Potential Win (per bet)' : 'Potential Win'}</span>
+                          <span className="text-green-400 font-bold">KES {calculatePotentialWin().toFixed(2)}</span>
+                        </div>
+                      </div>
+
+                      <Button
+                        onClick={runSimulation}
+                        disabled={isSimulating || betSlip.length === 0}
+                        className={`w-full ${isSimMode ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-green-600 hover:bg-green-700 text-white'} font-bold py-3`}
+                      >
+                        {isSimulating 
+                          ? (isSimMode ? 'Simulating...' : 'Placing Bet...') 
+                          : (isSimMode 
+                              ? `Run ${simulations} Simulation${simulations > 1 ? 's' : ''}` 
+                              : 'Place Bet'
+                            )
+                        }
+                      </Button>
+
+                      <button
+                        onClick={() => setBetSlip([])}
+                        className="w-full mt-2 text-gray-400 hover:text-white text-sm"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Pending Bets Section */}
+            {pendingBets.length > 0 && (
+              <Card className="bg-gray-800 border-gray-700 mt-4">
+                <div className="bg-gray-700 p-4 rounded-t-lg">
+                  <h3 className="text-white font-bold">Pending Bets ({pendingBets.length})</h3>
+                  <div className="text-gray-400 text-xs mt-1">
+                    Waiting for match results
+                  </div>
+                </div>
+                <div className="p-4 space-y-3">
+                  {pendingBets.map(bet => (
+                    <div key={bet.id} className="bg-gray-700 p-3 rounded-lg">
+                      <div className="space-y-2 mb-3">
+                        {bet.selections.map(sel => (
+                          <div key={sel.id} className="text-sm">
+                            <div className="text-white font-medium">{sel.selection}</div>
+                            <div className="text-gray-400 text-xs">{sel.match} @ {sel.odds.toFixed(2)}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t border-gray-600 pt-2 mb-3">
+                        <div className="flex justify-between text-sm mb-1">
+                          <span className="text-gray-400">Stake</span>
+                          <span className="text-white">KES {bet.stake.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-400">Potential Win</span>
+                          <span className="text-green-400 font-bold">KES {bet.potentialWin.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => settleBet(bet.id, true)}
+                          className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          Won
+                        </Button>
+                        <Button
+                          onClick={() => settleBet(bet.id, false)}
+                          className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                        >
+                          Lost
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default App
