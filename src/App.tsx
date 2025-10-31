@@ -118,6 +118,8 @@ interface SimulationResult {
   timestamp?: string
   selections: Selection[]
   total_odds?: number
+  events?: any[]
+  match_stats?: any
 }
 
 interface BetHistory {
@@ -1270,6 +1272,89 @@ function App() {
                           )
                         })}
                       </div>
+
+                      {result.events && result.events.length > 0 && (
+                        <div className="bg-gray-800 rounded p-4 mb-4">
+                          <h4 className="text-lg font-semibold text-white mb-3">Match Playthrough</h4>
+                          <div className="space-y-2 max-h-60 overflow-y-auto">
+                            {result.events.filter((event: any) => 
+                              event.event_type === 'goal' || event.event_type === 'kickoff' || event.event_type === 'halftime' || event.event_type === 'fulltime'
+                            ).map((event: any, eventIdx: number) => (
+                              <div key={eventIdx} className="flex items-start gap-2 text-sm">
+                                <div className="text-gray-400 font-mono w-12 flex-shrink-0">{event.minute}'</div>
+                                <div className="flex-1">
+                                  {event.event_type === 'goal' && (
+                                    <div className="text-green-400 font-medium">
+                                      ⚽ GOAL! {event.description}
+                                    </div>
+                                  )}
+                                  {event.event_type === 'kickoff' && (
+                                    <div className="text-blue-400">{event.description}</div>
+                                  )}
+                                  {event.event_type === 'halftime' && (
+                                    <div className="text-yellow-400">{event.description}</div>
+                                  )}
+                                  {event.event_type === 'fulltime' && (
+                                    <div className="text-purple-400 font-bold">{event.description}</div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {result.match_stats && (
+                        <div className="bg-gray-800 rounded p-4 mb-4">
+                          <h4 className="text-lg font-semibold text-white mb-3">Match Statistics</h4>
+                          <div className="space-y-3">
+                            {result.match_stats.possession && (
+                              <div>
+                                <div className="flex justify-between text-sm mb-1">
+                                  <span className="text-gray-400">Possession</span>
+                                  <span className="text-white">{result.home_team} {result.match_stats.possession[result.home_team || '']?.toFixed(0)}% - {result.match_stats.possession[result.away_team || '']?.toFixed(0)}% {result.away_team}</span>
+                                </div>
+                                <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden flex">
+                                  <div 
+                                    className="bg-blue-500 h-full" 
+                                    style={{width: `${result.match_stats.possession[result.home_team || ''] || 50}%`}}
+                                  ></div>
+                                  <div 
+                                    className="bg-red-500 h-full" 
+                                    style={{width: `${result.match_stats.possession[result.away_team || ''] || 50}%`}}
+                                  ></div>
+                                </div>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                              <div className="text-white font-medium">{result.home_team}</div>
+                              <div className="text-gray-400 text-sm">Stat</div>
+                              <div className="text-white font-medium">{result.away_team}</div>
+                            </div>
+                            {result.match_stats.shots && (
+                              <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="text-white">{result.match_stats.shots[result.home_team || ''] || 0}</div>
+                                <div className="text-gray-400 text-sm">Shots</div>
+                                <div className="text-white">{result.match_stats.shots[result.away_team || ''] || 0}</div>
+                              </div>
+                            )}
+                            {result.match_stats.corners && (
+                              <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="text-white">{result.match_stats.corners[result.home_team || ''] || 0}</div>
+                                <div className="text-gray-400 text-sm">Corners</div>
+                                <div className="text-white">{result.match_stats.corners[result.away_team || ''] || 0}</div>
+                              </div>
+                            )}
+                            {result.match_stats.fouls && (
+                              <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="text-white">{result.match_stats.fouls[result.home_team || ''] || 0}</div>
+                                <div className="text-gray-400 text-sm">Fouls</div>
+                                <div className="text-white">{result.match_stats.fouls[result.away_team || ''] || 0}</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {(result.total_stake || result.stake) && (
                         <div className="bg-gray-800 rounded p-4">
