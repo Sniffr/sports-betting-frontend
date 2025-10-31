@@ -1024,9 +1024,11 @@ function App() {
                           {result.home_team} vs {result.away_team}
                         </h3>
                         <div className="text-right">
-                          <div className="text-2xl font-bold text-white">
-                            {result.final_score[result.home_team]} - {result.final_score[result.away_team]}
-                          </div>
+                          {result.final_score && (
+                            <div className="text-2xl font-bold text-white">
+                              {result.final_score[result.home_team] || 0} - {result.final_score[result.away_team] || 0}
+                            </div>
+                          )}
                           <div className={`text-sm font-bold ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
                             {result.bet_slip_won ? '✓ BETSLIP WON' : '✗ BETSLIP LOST'}
                           </div>
