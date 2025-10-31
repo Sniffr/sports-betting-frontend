@@ -3,7 +3,7 @@ import './App.css'
 import { X, TrendingUp, RefreshCw, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { oddsToScoreProbabilitiesWithTotals } from './utils/oddsConverter'
+import { generateMissingMarkets, oddsToProbabilities, convertMarketToAPI, SupportedMarket } from './utils/marketGenerator'
 import { Auth } from './components/Auth'
 
 const API_KEY = 'a3b186794403af630516172e9184ef1f'
@@ -16,8 +16,8 @@ interface Selection {
   match: string
   selection: string
   odds: number
-  market: 'h2h' | 'spreads' | 'totals'
-  side: 'home' | 'away' | 'draw' | 'over' | 'under'
+  market: 'h2h' | 'spreads' | 'totals' | 'btts' | 'correct_score'
+  side: 'home' | 'away' | 'draw' | 'over' | 'under' | 'yes' | 'no' | string
   point?: number
 }
 
@@ -56,6 +56,13 @@ interface Match {
   h2h?: MarketOdds
   spread?: SpreadOdds
   totals?: TotalsOdds
+  bothTeamsToScore?: {
+    yes: number
+    no: number
+  }
+  correctScore?: {
+    scores: Array<{ score: string, odds: number }>
+  }
 }
 
 interface League {
@@ -179,6 +186,8 @@ function App() {
       return {}
     }
   })
+  const [supportedMarkets, setSupportedMarkets] = useState<SupportedMarket[]>([])
+  const [isBetslipExpanded, setIsBetslipExpanded] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('balance', balance.toString())
@@ -221,15 +230,16 @@ function App() {
     setPlayerStats(null)
   }
 
-  const addToBetSlip = (match: Match, market: 'h2h' | 'spreads' | 'totals', side: 'home' | 'away' | 'draw' | 'over' | 'under', odds: number, point?: number) => {
+  const addToBetSlip = (match: Match, market: 'h2h' | 'spreads' | 'totals' | 'btts' | 'correct_score', side: 'home' | 'away' | 'draw' | 'over' | 'under' | 'yes' | 'no' | string, odds: number, point?: number) => {
     setBetSlipError('')
     
-    const existingSelectionSameMarket = betSlip.find(
-      s => s.matchId === match.id && s.market === market
+    // Check if there's already any selection for this match (only one market per match allowed)
+    const existingSelectionForMatch = betSlip.find(
+      s => s.matchId === match.id
     )
     
-    if (existingSelectionSameMarket) {
-      setBetSlipError(`You can only select one option per market per match. Remove "${existingSelectionSameMarket.selection}" first.`)
+    if (existingSelectionForMatch) {
+      setBetSlipError(`You can only select one market per match. Remove "${existingSelectionForMatch.selection}" from this match first.`)
       setTimeout(() => setBetSlipError(''), 5000)
       return
     }
@@ -244,6 +254,10 @@ function App() {
       selectionText = `${side === 'home' ? match.homeTeam : match.awayTeam} ${sign}${displayPoint.toFixed(1)}`
     } else if (market === 'totals') {
       selectionText = `${side === 'over' ? 'Over' : 'Under'} ${point}`
+    } else if (market === 'btts') {
+      selectionText = side === 'yes' ? 'Both Teams To Score - Yes' : 'Both Teams To Score - No'
+    } else if (market === 'correct_score') {
+      selectionText = `Correct Score: ${side}`
     }
     
     const newSelection: Selection = {
@@ -260,11 +274,18 @@ function App() {
     const exists = betSlip.find(s => s.id === newSelection.id)
     if (!exists) {
       setBetSlip([...betSlip, newSelection])
+      // Auto-expand betslip on mobile when adding a bet
+      setIsBetslipExpanded(true)
     }
   }
 
   const removeFromBetSlip = (id: string) => {
-    setBetSlip(betSlip.filter(s => s.id !== id))
+    const newBetSlip = betSlip.filter(s => s.id !== id)
+    setBetSlip(newBetSlip)
+    // Auto-collapse if betslip is empty
+    if (newBetSlip.length === 0) {
+      setIsBetslipExpanded(false)
+    }
   }
 
   const calculateTotalOdds = () => {
@@ -334,32 +355,20 @@ function App() {
           return
         }
 
-        const scoreProbabilities = oddsToScoreProbabilitiesWithTotals(
-          match.h2h.home,
-          match.h2h.draw,
-          match.h2h.away,
-          match.totals?.point,
-          match.totals?.over,
-          match.totals?.under
-        )
+        // Convert all markets to probabilities for simulation
+        const matchMarkets = {
+          h2h: match.h2h,
+          totals: match.totals,
+          bothTeamsToScore: match.bothTeamsToScore,
+          correctScore: match.correctScore
+        }
+        const scoreProbabilities = oddsToProbabilities(matchMarkets, supportedMarkets)
 
         const betSlipData = selections.map(sel => {
-          let market: string = sel.market
-          let outcome: string = sel.side
-
-          if (sel.market === 'h2h') {
-            market = '1X2'
-            if (sel.side === 'home') outcome = '1'
-            else if (sel.side === 'draw') outcome = 'X'
-            else if (sel.side === 'away') outcome = '2'
-          } else if (sel.market === 'totals') {
-            market = 'over_under'
-            outcome = `${sel.side}_${sel.point}`
-          }
-
+          const apiMarket = convertMarketToAPI(sel.market, sel.side, sel.point)
           return {
-            market,
-            outcome,
+            market: apiMarket.market,
+            outcome: apiMarket.outcome,
             odds: sel.odds
           }
         })
@@ -415,14 +424,13 @@ function App() {
           const match = matchesMap[matchId]
           if (!match || !match.h2h) return null
 
-          const scoreProbabilities = oddsToScoreProbabilitiesWithTotals(
-            match.h2h.home,
-            match.h2h.draw,
-            match.h2h.away,
-            match.totals?.point,
-            match.totals?.over,
-            match.totals?.under
-          )
+          const matchMarkets = {
+            h2h: match.h2h,
+            totals: match.totals,
+            bothTeamsToScore: match.bothTeamsToScore,
+            correctScore: match.correctScore
+          }
+          const scoreProbabilities = oddsToProbabilities(matchMarkets, supportedMarkets)
 
           return {
             match_id: `match_${index + 1}`,
@@ -437,18 +445,9 @@ function App() {
           const matchIndex = matchesData.findIndex(m => m?.matchId === sel.matchId)
           if (matchIndex === -1) return null
 
-          let market: string = sel.market
-          let outcome: string = sel.side
-
-          if (sel.market === 'h2h') {
-            market = '1X2'
-            if (sel.side === 'home') outcome = '1'
-            else if (sel.side === 'draw') outcome = 'X'
-            else if (sel.side === 'away') outcome = '2'
-          } else if (sel.market === 'totals') {
-            market = 'over_under'
-            outcome = `${sel.side}_${sel.point}`
-          }
+          const apiMarket = convertMarketToAPI(sel.market, sel.side, sel.point)
+          const market = apiMarket.market
+          const outcome = apiMarket.outcome
 
           return {
             match_id: `match_${matchIndex + 1}`,
@@ -692,6 +691,15 @@ function App() {
           }
         }
 
+        // Generate missing markets based on existing odds
+        // Only if we have at least h2h odds
+        if (match.h2h) {
+          const enrichedMatch = {
+            ...match,
+            ...generateMissingMarkets(match, supportedMarkets)
+          }
+          return enrichedMatch
+        }
         return match
       })
 
@@ -717,9 +725,22 @@ function App() {
     }
   }
 
+  const fetchSupportedMarkets = async () => {
+    try {
+      const response = await fetch(`${SIMULATION_API_URL}/api/markets`)
+      if (response.ok) {
+        const data = await response.json()
+        setSupportedMarkets(data.markets || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch supported markets:', err)
+    }
+  }
+
   useEffect(() => {
     fetchLeagues()
     fetchPlayerStats()
+    fetchSupportedMarkets()
   }, [])
 
   useEffect(() => {
@@ -734,13 +755,8 @@ function App() {
   }
 
   const getAvailableMarkets = () => {
-    const markets = new Set<string>()
-    matches.forEach(match => {
-      if (match.h2h) markets.add('1X2')
-      if (match.totals) markets.add('Over/Under')
-    })
-    markets.add('GG/NG (API not supported)')
-    return Array.from(markets).join(', ') || 'Loading...'
+    const markets = supportedMarkets.map(m => m.name)
+    return markets.length > 0 ? markets.join(', ') : 'Loading...'
   }
 
   const getTimeSinceLastFetch = () => {
@@ -851,8 +867,8 @@ function App() {
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="container mx-auto p-4">
+        {/* Main Content */}
+      <div className="container mx-auto p-4 pb-24 lg:pb-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Games Section */}
           <div className="lg:col-span-2">
@@ -985,20 +1001,61 @@ function App() {
                     </div>
                   )}
 
-                  {/* GG/NG Market - Not supported by API */}
-                  <div className="mb-2">
-                    <div className="text-gray-400 text-xs mb-2 font-medium">GG/NG (Both Teams to Score)</div>
-                    <div className="bg-gray-700 rounded-lg p-3 text-center">
-                      <span className="text-gray-500 text-sm">Not supported by API</span>
+                  {/* Both Teams To Score Market */}
+                  {match.bothTeamsToScore ? (
+                    <div className="mb-3">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">Both Teams To Score</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => addToBetSlip(match, 'btts', 'yes', match.bothTeamsToScore!.yes)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-3 font-bold transition text-sm"
+                        >
+                          <div className="text-xs mb-1">Yes</div>
+                          <div>{(match.bothTeamsToScore?.yes || 0).toFixed(2)}</div>
+                        </button>
+                        <button
+                          onClick={() => addToBetSlip(match, 'btts', 'no', match.bothTeamsToScore!.no)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg p-3 font-bold transition text-sm"
+                        >
+                          <div className="text-xs mb-1">No</div>
+                          <div>{(match.bothTeamsToScore?.no || 0).toFixed(2)}</div>
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="mb-2">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">Both Teams To Score</div>
+                      <div className="bg-gray-700 rounded-lg p-3 text-center">
+                        <span className="text-gray-500 text-sm">Not available</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Correct Score Market */}
+                  {match.correctScore && match.correctScore.scores.length > 0 ? (
+                    <div className="mb-2">
+                      <div className="text-gray-400 text-xs mb-2 font-medium">Correct Score (Popular)</div>
+                      <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+                        {match.correctScore.scores.slice(0, 12).map((score, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => addToBetSlip(match, 'correct_score', score.score, score.odds)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg p-2 font-bold transition text-xs"
+                          >
+                            <div className="text-xs mb-1">{score.score}</div>
+                            <div className="text-xs">{(score.odds || 0).toFixed(1)}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </Card>
               ))}
             </div>
           </div>
 
-          {/* Betslip Section */}
-          <div className="lg:col-span-1">
+          {/* Betslip Section - Desktop Sidebar */}
+          <div className="hidden lg:block lg:col-span-1">
             <Card className="bg-gray-800 border-gray-700 sticky top-4">
               <div className="bg-gray-700 p-4 rounded-t-lg">
                 <div className="flex justify-between items-center mb-3">
@@ -1197,6 +1254,234 @@ function App() {
           </div>
         </div>
 
+        {/* Mobile Floating Betslip */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+          {!isBetslipExpanded ? (
+            betSlip.length > 0 ? (
+              /* Collapsed with bets - Show bet count and total odds */
+              <div 
+                onClick={() => setIsBetslipExpanded(true)}
+                className="bg-green-600 text-white p-4 shadow-lg cursor-pointer"
+              >
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-green-700 rounded-full px-3 py-1 font-bold">
+                      {betSlip.length} Bet{betSlip.length > 1 ? 's' : ''}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-xs opacity-90">Total Odds</span>
+                      <span className="font-bold">{calculateTotalOdds().toFixed(2)}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-xs opacity-90">Potential Win</span>
+                      <span className="font-bold">KES {calculatePotentialWin().toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="bg-green-700 rounded-full p-2">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Empty Betslip - Show collapsed bar */
+              <div 
+                onClick={() => setIsBetslipExpanded(true)}
+                className="bg-gray-700 text-gray-300 p-3 shadow-lg cursor-pointer"
+              >
+                <div className="flex justify-between items-center">
+                  <span className="text-sm">Betslip (0)</span>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                  </svg>
+                </div>
+              </div>
+            )
+          ) : (
+            /* Expanded State - Full betslip */
+            <div className="bg-gray-800 border-t-2 border-gray-700 max-h-[85vh] overflow-y-auto shadow-2xl">
+              {/* Header */}
+              <div className="bg-gray-700 p-4 sticky top-0 z-10">
+                <div className="flex justify-between items-center mb-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-white font-bold text-lg">Betslip</h3>
+                    <div className="bg-green-600 rounded-full px-2 py-1 text-xs font-bold">
+                      {betSlip.length}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsBetslipExpanded(false)}
+                    className="text-white hover:text-gray-300"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="flex gap-2 mb-2">
+                  <button
+                    onClick={() => setIsSimMode(false)}
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition ${
+                      !isSimMode 
+                        ? 'bg-green-600 text-white' 
+                        : 'bg-gray-600 text-gray-300'
+                    }`}
+                  >
+                    Real
+                  </button>
+                  <button
+                    onClick={() => setIsSimMode(true)}
+                    className={`flex-1 py-2 px-4 rounded-lg font-medium transition ${
+                      isSimMode 
+                        ? 'bg-yellow-500 text-black' 
+                        : 'bg-gray-600 text-gray-300'
+                    }`}
+                  >
+                    Sim
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4">
+                {betSlipError && (
+                  <div className="bg-red-500 bg-opacity-10 border border-red-500 text-red-500 px-3 py-2 rounded-lg text-sm mb-4">
+                    {betSlipError}
+                  </div>
+                )}
+                
+                {betSlip.length === 0 ? (
+                  <div className="text-gray-400 text-center py-8">
+                    Click on odds to add selections
+                  </div>
+                ) : (
+                  <div className="space-y-3 mb-4">
+                  {betSlip.map(selection => (
+                    <div key={selection.id} className="bg-gray-700 p-3 rounded-lg">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1">
+                          <div className="text-white text-sm font-medium">{selection.selection}</div>
+                          <div className="text-gray-400 text-xs">{selection.match}</div>
+                          <div className="text-gray-500 text-xs capitalize">{selection.market}</div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeFromBetSlip(selection.id)
+                          }}
+                          className="text-gray-400 hover:text-white"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div className="text-green-400 font-bold">{(selection?.odds || 0).toFixed(2)}</div>
+                    </div>
+                  ))}
+                  </div>
+                )}
+
+                <div className="border-t border-gray-600 pt-4">
+                  {/* Quick Stake Buttons */}
+                  <div className="mb-3">
+                    <label className="text-gray-400 text-sm block mb-2">Stake (KES)</label>
+                    <div className="flex gap-2 mb-2">
+                      {[20, 50, 100, 500].map((amount) => (
+                        <button
+                          key={amount}
+                          onClick={() => setStake(amount)}
+                          className={`flex-1 py-2 px-3 rounded-lg font-medium transition ${
+                            stake === amount
+                              ? 'bg-yellow-500 text-black'
+                              : 'bg-gray-700 text-gray-300'
+                          }`}
+                        >
+                          {amount}/-
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="number"
+                      value={stake}
+                      onChange={(e) => setStake(Number(e.target.value))}
+                      className="w-full bg-gray-700 text-white p-3 rounded-lg"
+                      min="1"
+                      placeholder="Enter stake"
+                    />
+                  </div>
+
+                  {isSimMode && (
+                    <div className="mb-3">
+                      <label className="text-gray-400 text-sm block mb-2">Times to Simulate</label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSimulations(Math.max(1, simulations - 1))}
+                          className="bg-gray-700 text-white px-4 py-2 rounded-lg"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          value={simulations}
+                          onChange={(e) => setSimulations(Math.max(1, Number(e.target.value)))}
+                          className="flex-1 bg-gray-700 text-white p-3 rounded-lg text-center"
+                          min="1"
+                        />
+                        <button
+                          onClick={() => setSimulations(simulations + 1)}
+                          className="bg-green-600 text-white px-4 py-2 rounded-lg"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-gray-700 p-3 rounded-lg mb-4">
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-400">Total Odds</span>
+                      <span className="text-white font-bold">{calculateTotalOdds().toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span className="text-gray-400">{isSimMode ? 'Total Stake' : 'Stake'}</span>
+                      <span className="text-white font-bold">KES {(isSimMode ? stake * simulations : stake).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">{isSimMode ? 'Potential Win (per bet)' : 'Potential Win'}</span>
+                      <span className="text-green-400 font-bold">KES {calculatePotentialWin().toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => {
+                        setBetSlip([])
+                        setIsBetslipExpanded(false)
+                      }}
+                      className="flex-1 bg-gray-700 hover:bg-gray-600 text-white"
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      onClick={runSimulation}
+                      disabled={isSimulating || betSlip.length === 0}
+                      className={`flex-1 ${isSimMode ? 'bg-yellow-500 hover:bg-yellow-600 text-black' : 'bg-green-600 hover:bg-green-700 text-white'} font-bold py-3`}
+                    >
+                      {isSimulating 
+                        ? (isSimMode ? 'Simulating...' : 'Placing...') 
+                        : (isSimMode 
+                            ? `Run ${simulations} Sim${simulations > 1 ? 's' : ''}`
+                            : `Place Bet KES ${stake.toFixed(2)}`
+                          )
+                      }
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
         {/* Simulation Results Modal */}
         {showResults && simulationResults.length > 0 && (
           <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
@@ -1375,7 +1660,6 @@ function App() {
             </div>
           </div>
         )}
-      </div>
     </div>
   )
 }
