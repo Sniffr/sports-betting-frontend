@@ -171,6 +171,7 @@ function App() {
   const [showResults, setShowResults] = useState(false)
   const [betHistory, setBetHistory] = useState<BetHistory[]>([])
   const [showBetHistory, setShowBetHistory] = useState(false)
+  const [betSlipError, setBetSlipError] = useState<string>('')
   const [cache, setCache] = useState<Record<string, CachedData>>(() => {
     try {
       return JSON.parse(localStorage.getItem('oddsCache') || '{}')
@@ -221,6 +222,18 @@ function App() {
   }
 
   const addToBetSlip = (match: Match, market: 'h2h' | 'spreads' | 'totals', side: 'home' | 'away' | 'draw' | 'over' | 'under', odds: number, point?: number) => {
+    setBetSlipError('')
+    
+    const existingSelectionSameMarket = betSlip.find(
+      s => s.matchId === match.id && s.market === market
+    )
+    
+    if (existingSelectionSameMarket) {
+      setBetSlipError(`You can only select one option per market per match. Remove "${existingSelectionSameMarket.selection}" first.`)
+      setTimeout(() => setBetSlipError(''), 5000)
+      return
+    }
+    
     let selectionText = ''
     
     if (market === 'h2h') {
@@ -1021,6 +1034,12 @@ function App() {
               </div>
 
               <div className="p-4">
+                {betSlipError && (
+                  <div className="bg-red-500 bg-opacity-10 border border-red-500 text-red-500 px-3 py-2 rounded-lg text-sm mb-4">
+                    {betSlipError}
+                  </div>
+                )}
+                
                 {betSlip.length === 0 ? (
                   <div className="text-gray-400 text-center py-8">
                     Click on odds to add selections
