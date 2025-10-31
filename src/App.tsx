@@ -1108,7 +1108,7 @@ function App() {
 
           {showResults && simulationResults.length > 0 && (
             <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 overflow-y-auto">
-              <div className="bg-gray-800 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="bg-gray-800 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
                 <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center">
                   <h2 className="text-2xl font-bold text-white">Simulation Results</h2>
                   <Button onClick={() => setShowResults(false)} className="bg-red-600 hover:bg-red-700">
@@ -1120,118 +1120,136 @@ function App() {
                   {simulationResults.map((result, idx) => (
                     <Card key={idx} className="bg-gray-900 border-gray-700">
                       <div className="p-4">
-                        <div className="flex justify-between items-center mb-4">
-                          <h3 className="text-xl font-bold text-white">
-                            {result.home_team} vs {result.away_team}
-                          </h3>
-                          <div className="text-right">
-                            <div className="text-2xl font-bold text-white">
-                              {result.final_score[result.home_team]} - {result.final_score[result.away_team]}
+                        <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-700">
+                          <div>
+                            <h3 className="text-2xl font-bold text-white mb-1">Betslip #{idx + 1}</h3>
+                            <div className="text-sm text-gray-400">
+                              {result.total_selections} Selection{result.total_selections > 1 ? 's' : ''}
+                              {' • '}
+                              Combined Odds: {result.total_odds.toFixed(2)}x
                             </div>
-                            <div className={`text-sm font-bold ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
+                          </div>
+                          <div className="text-right">
+                            <div className={`text-3xl font-bold mb-1 ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
                               {result.bet_slip_won ? '✓ WON' : '✗ LOST'}
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              {result.winning_selections}/{result.total_selections} Correct
                             </div>
                           </div>
                         </div>
 
-                        <div className="bg-gray-800 rounded p-3 mb-4">
-                          <h4 className="text-sm font-semibold text-gray-400 mb-2">Bet Results</h4>
+                        <div className="bg-gray-800 rounded p-4 mb-4">
+                          <h4 className="text-lg font-semibold text-white mb-3">Selections</h4>
                           {result.bet_results.map((bet, betIdx) => (
-                            <div key={betIdx} className="mb-2 pb-2 border-b border-gray-700 last:border-0">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <div className="text-white font-medium">{bet.market}: {bet.outcome}</div>
-                                  {bet.stake && bet.odds && (
-                                    <div className="text-sm text-gray-400">
-                                      Stake: KES {bet.stake.toFixed(2)} @ {bet.odds.toFixed(2)}x
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="text-right">
-                                  <div className={`font-bold ${bet.won ? 'text-green-400' : 'text-red-400'}`}>
-                                    {bet.won ? '✓ Won' : '✗ Lost'}
+                            <div key={betIdx} className="mb-3 pb-3 border-b border-gray-700 last:border-0 last:pb-0 last:mb-0">
+                              <div className="flex justify-between items-start mb-2">
+                                <div className="flex-1">
+                                  <div className="text-white font-bold text-base mb-1">
+                                    {bet.home_team} vs {bet.away_team}
                                   </div>
-                                  {bet.payout && (
-                                    <div className="text-sm text-green-400">
-                                      Payout: KES {bet.payout.toFixed(2)}
-                                    </div>
-                                  )}
+                                  <div className="text-white font-medium">
+                                    {bet.market}: {bet.outcome} @ {bet.odds.toFixed(2)}x
+                                  </div>
+                                  <div className="text-sm text-gray-400 mt-1">
+                                    Final Score: {bet.home_score} - {bet.away_score}
+                                  </div>
+                                </div>
+                                <div className="text-right ml-4">
+                                  <div className={`font-bold text-lg ${bet.won ? 'text-green-400' : 'text-red-400'}`}>
+                                    {bet.won ? '✓' : '✗'}
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           ))}
-                          {result.total_stake && (
-                            <div className="mt-3 pt-3 border-t border-gray-700">
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">Total Stake:</span>
-                                <span className="text-white">KES {result.total_stake.toFixed(2)}</span>
-                              </div>
-                              {result.total_payout && (
-                                <>
-                                  <div className="flex justify-between text-sm">
-                                    <span className="text-gray-400">Total Payout:</span>
-                                    <span className="text-green-400">KES {result.total_payout.toFixed(2)}</span>
-                                  </div>
-                                  <div className="flex justify-between text-sm font-bold">
-                                    <span className="text-gray-400">Net Profit:</span>
-                                    <span className={result.total_profit! >= 0 ? 'text-green-400' : 'text-red-400'}>
-                                      KES {result.total_profit!.toFixed(2)}
-                                    </span>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          )}
                         </div>
 
-                        <div className="bg-gray-800 rounded p-3 mb-4">
-                          <h4 className="text-sm font-semibold text-gray-400 mb-2">Match Statistics</h4>
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                            <div>
-                              <span className="text-gray-400">Possession:</span>
-                              <span className="text-white ml-2">
-                                {result.home_team} {result.match_stats.possession[result.home_team].toFixed(1)}% - 
-                                {result.match_stats.possession[result.away_team].toFixed(1)}% {result.away_team}
+                        <div className="bg-gray-800 rounded p-4">
+                          <h4 className="text-lg font-semibold text-white mb-3">Betslip Summary</h4>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Stake:</span>
+                              <span className="text-white font-medium">KES {result.stake.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Total Odds:</span>
+                              <span className="text-white font-medium">{result.total_odds.toFixed(2)}x</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-400">Potential Payout:</span>
+                              <span className="text-blue-400 font-medium">KES {result.potential_payout.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between pt-2 border-t border-gray-700">
+                              <span className="text-gray-400 font-semibold">Actual Payout:</span>
+                              <span className={`font-bold ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
+                                KES {result.actual_payout.toFixed(2)}
                               </span>
                             </div>
-                            <div>
-                              <span className="text-gray-400">Shots:</span>
-                              <span className="text-white ml-2">
-                                {result.match_stats.shots[result.home_team]} - {result.match_stats.shots[result.away_team]}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-400">Corners:</span>
-                              <span className="text-white ml-2">
-                                {result.match_stats.corners[result.home_team]} - {result.match_stats.corners[result.away_team]}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-400">Fouls:</span>
-                              <span className="text-white ml-2">
-                                {result.match_stats.fouls[result.home_team]} - {result.match_stats.fouls[result.away_team]}
+                            <div className="flex justify-between">
+                              <span className="text-gray-400 font-semibold">Profit/Loss:</span>
+                              <span className={`font-bold ${result.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                KES {result.profit.toFixed(2)}
                               </span>
                             </div>
                           </div>
                         </div>
 
-                        <div className="bg-gray-800 rounded p-3">
-                          <h4 className="text-sm font-semibold text-gray-400 mb-2">Match Events</h4>
-                          <div className="max-h-60 overflow-y-auto space-y-1">
-                            {result.events.map((event, eventIdx) => (
-                              <div key={eventIdx} className="text-sm flex">
-                                <span className="text-gray-500 w-12">{event.minute}'</span>
-                                <span className={`flex-1 ${
-                                  event.event_type === 'goal' ? 'text-green-400 font-bold' :
-                                  event.event_type === 'kickoff' || event.event_type === 'halftime' || event.event_type === 'fulltime' ? 'text-blue-400 font-semibold' :
-                                  'text-gray-300'
-                                }`}>
-                                  {event.description}
-                                </span>
+                        {result.matches && result.matches.length > 0 && (
+                          <div className="mt-4">
+                            <details className="bg-gray-800 rounded">
+                              <summary className="p-4 cursor-pointer text-white font-medium hover:bg-gray-750">
+                                View Match Details & Events
+                              </summary>
+                              <div className="p-4 space-y-4 border-t border-gray-700">
+                                {result.matches.map((match, matchIdx) => (
+                                  <div key={matchIdx} className="border-b border-gray-700 last:border-0 pb-4 last:pb-0">
+                                    <h5 className="text-white font-bold mb-2">
+                                      {match.home_team} {match.home_score} - {match.away_score} {match.away_team}
+                                    </h5>
+                                    
+                                    <div className="bg-gray-900 rounded p-3 mb-3">
+                                      <h6 className="text-sm font-semibold text-gray-400 mb-2">Statistics</h6>
+                                      <div className="grid grid-cols-2 gap-2 text-sm">
+                                        <div>
+                                          <span className="text-gray-400">Possession:</span>
+                                          <span className="text-white ml-2">
+                                            {match.match_stats.possession[match.home_team].toFixed(1)}% - 
+                                            {match.match_stats.possession[match.away_team].toFixed(1)}%
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <span className="text-gray-400">Shots:</span>
+                                          <span className="text-white ml-2">
+                                            {match.match_stats.shots[match.home_team]} - {match.match_stats.shots[match.away_team]}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="bg-gray-900 rounded p-3">
+                                      <h6 className="text-sm font-semibold text-gray-400 mb-2">Events</h6>
+                                      <div className="max-h-40 overflow-y-auto space-y-1">
+                                        {match.events.slice(0, 10).map((event, eventIdx) => (
+                                          <div key={eventIdx} className="text-sm flex">
+                                            <span className="text-gray-500 w-12">{event.minute}'</span>
+                                            <span className={`flex-1 ${
+                                              event.event_type === 'goal' ? 'text-green-400 font-bold' :
+                                              event.event_type === 'kickoff' || event.event_type === 'halftime' || event.event_type === 'fulltime' ? 'text-blue-400' :
+                                              'text-gray-300'
+                                            }`}>
+                                              {event.description}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            </details>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </Card>
                   ))}
