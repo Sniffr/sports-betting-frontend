@@ -125,14 +125,21 @@ interface BetHistory {
   user_id: string
   home_team: string
   away_team: string
-  final_score_home: number
-  final_score_away: number
+  home_score: number
+  away_score: number
   bet_slip_won: boolean
   total_stake: number
   total_payout: number
   total_profit: number
-  rtp: number
-  timestamp: string
+  configured_rtp: number
+  seed: number
+  volatility: string
+  total_events: number
+  number_of_bets: number
+  bet_results: BetResult[]
+  events: any[]
+  match_stats: any
+  created_at: string
 }
 
 function App() {
@@ -273,10 +280,10 @@ function App() {
 
   const fetchBetHistory = async () => {
     try {
-      const response = await fetch(`${SIMULATION_API_URL}/api/simulations?user_id=${userId}`)
+      const response = await fetch(`${SIMULATION_API_URL}/api/history?user_id=${userId}&limit=100`)
       if (response.ok) {
-        const history = await response.json()
-        setBetHistory(history)
+        const data = await response.json()
+        setBetHistory(data.simulations || [])
       }
     } catch (err) {
       console.error('Failed to fetch bet history:', err)
@@ -1308,12 +1315,12 @@ function App() {
                                 {bet.home_team} vs {bet.away_team}
                               </h3>
                               <div className="text-sm text-gray-400">
-                                {new Date(bet.timestamp).toLocaleString()}
+                                {new Date(bet.created_at).toLocaleString()}
                               </div>
                             </div>
                             <div className="text-right">
                               <div className="text-xl font-bold text-white">
-                                {bet.final_score_home} - {bet.final_score_away}
+                                {bet.home_score} - {bet.away_score}
                               </div>
                               <div className={`text-sm font-bold ${bet.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
                                 {bet.bet_slip_won ? '✓ WON' : '✗ LOST'}
@@ -1337,7 +1344,7 @@ function App() {
                             </div>
                             <div>
                               <div className="text-xs text-gray-400">RTP</div>
-                              <div className="text-white font-medium">{((bet.rtp || 0) * 100).toFixed(1)}%</div>
+                              <div className="text-white font-medium">{((bet.configured_rtp || 0) * 100).toFixed(1)}%</div>
                             </div>
                           </div>
                         </div>
