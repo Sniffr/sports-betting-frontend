@@ -3,9 +3,11 @@ import './App.css'
 import { X, TrendingUp, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { oddsToScoreProbabilitiesWithTotals } from './utils/oddsConverter'
 
 const API_KEY = 'a3b186794403af630516172e9184ef1f'
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const SIMULATION_API_URL = import.meta.env.VITE_SIMULATION_API_URL || 'http://localhost:8000'
 
 interface Selection {
   id: string
@@ -66,6 +68,19 @@ interface CachedData {
   region: string
 }
 
+interface PlayerStats {
+  user_id: string
+  total_simulations: number
+  won_slips: number
+  lost_slips: number
+  win_rate: number
+  win_loss_rtp: number
+  total_staked: number
+  total_paid_out: number
+  actual_rtp: number
+  total_profit: number
+}
+
 function App() {
   const [balance, setBalance] = useState(50000)
   const [betSlip, setBetSlip] = useState<Selection[]>([])
@@ -81,6 +96,14 @@ function App() {
   const [requestsRemaining, setRequestsRemaining] = useState<number | null>(null)
   const [leagues, setLeagues] = useState<League[]>([])
   const [activeLeagueKey, setActiveLeagueKey] = useState<string>('soccer_epl')
+  const [userId, setUserId] = useState<string>(() => {
+    const stored = localStorage.getItem('userId')
+    if (stored) return stored
+    const newId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    localStorage.setItem('userId', newId)
+    return newId
+  })
+  const [playerStats, setPlayerStats] = useState<PlayerStats | null>(null)
   const [cache, setCache] = useState<Record<string, CachedData>>(() => {
     try {
       return JSON.parse(localStorage.getItem('oddsCache') || '{}')
@@ -132,49 +155,143 @@ function App() {
     return stake * calculateTotalOdds()
   }
 
-  const runSimulation = () => {
+  const fetchPlayerStats = async () => {
+    try {
+      const response = await fetch(`${SIMULATION_API_URL}/api/players/${userId}/stats`)
+      if (response.ok) {
+        const stats = await response.json()
+        setPlayerStats(stats)
+      } else if (response.status === 404) {
+        setPlayerStats(null)
+      }
+    } catch (err) {
+      console.error('Failed to fetch player stats:', err)
+      setPlayerStats(null)
+    }
+  }
+
+  const runSimulation = async () => {
     if (betSlip.length === 0 || stake <= 0) return
 
     setIsSimulating(true)
 
-    setTimeout(() => {
-      if (isSimMode) {
-        const results = []
+    if (isSimMode) {
+      const matchesMap = matches.reduce((acc, m) => {
+        acc[m.id] = m
+        return acc
+      }, {} as Record<string, Match>)
+
+      const matchGroups = betSlip.reduce((acc, sel) => {
+        if (!acc[sel.matchId]) {
+          acc[sel.matchId] = []
+        }
+        acc[sel.matchId].push(sel)
+        return acc
+      }, {} as Record<string, Selection[]>)
+
+      let totalWins = 0
+      let totalLosses = 0
+      let totalStakeAmount = 0
+      let totalWinnings = 0
+
+      for (const [matchId, selections] of Object.entries(matchGroups)) {
+        const match = matchesMap[matchId]
+        if (!match || !match.h2h) continue
+
+        const scoreProbabilities = oddsToScoreProbabilitiesWithTotals(
+          match.h2h.home,
+          match.h2h.draw,
+          match.h2h.away,
+          match.totals?.point,
+          match.totals?.over,
+          match.totals?.under
+        )
+
+        const betSlipData = selections.map(sel => {
+          let market = sel.market
+          let outcome = sel.side
+
+          if (market === 'h2h') {
+            market = '1X2'
+            if (sel.side === 'home') outcome = '1'
+            else if (sel.side === 'draw') outcome = 'X'
+            else if (sel.side === 'away') outcome = '2'
+          } else if (market === 'totals') {
+            market = 'over_under'
+            outcome = `${sel.side}_${sel.point}`
+          }
+
+          return {
+            market,
+            outcome,
+            stake: stake,
+            odds: sel.odds
+          }
+        })
+
         for (let i = 0; i < simulations; i++) {
-          const won = Math.random() < 0.3
-          results.push(won)
+          try {
+            const response = await fetch(`${SIMULATION_API_URL}/api/simulate`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                home_team: match.homeTeam,
+                away_team: match.awayTeam,
+                score_probabilities: scoreProbabilities,
+                bet_slip: betSlipData,
+                volatility: 'medium',
+                seed: Date.now() + i
+              })
+            })
+
+            if (response.ok) {
+              const result = await response.json()
+              if (result.bet_slip_won) {
+                totalWins++
+                if (result.total_payout) {
+                  totalWinnings += result.total_payout
+                }
+              } else {
+                totalLosses++
+              }
+              if (result.total_stake) {
+                totalStakeAmount += result.total_stake
+              }
+            }
+          } catch (err) {
+            console.error('Simulation request failed:', err)
+          }
         }
-
-        const wins = results.filter(r => r).length
-        const losses = results.length - wins
-
-        const totalStake = stake * simulations
-        const totalWinnings = wins * calculatePotentialWin()
-        const netProfit = totalWinnings - totalStake
-
-        setBalance(balance + netProfit)
-        
-        setBetSlip([])
-        setIsSimulating(false)
-
-        alert(`Simulation Complete!\n\nWins: ${wins}\nLosses: ${losses}\nTotal Stake: KES ${totalStake.toFixed(2)}\nTotal Winnings: KES ${totalWinnings.toFixed(2)}\nNet Profit: KES ${netProfit.toFixed(2)}\n\nNew Balance: KES ${(balance + netProfit).toFixed(2)}`)
-      } else {
-        const newBet: PendingBet = {
-          id: Date.now().toString(),
-          selections: [...betSlip],
-          stake: stake,
-          potentialWin: calculatePotentialWin(),
-          placedAt: new Date()
-        }
-        
-        setBalance(balance - stake)
-        setPendingBets([...pendingBets, newBet])
-        setBetSlip([])
-        setIsSimulating(false)
-        
-        alert(`Bet Placed!\n\nYour bet has been placed successfully.\nStake: KES ${stake.toFixed(2)}\nPotential Win: KES ${calculatePotentialWin().toFixed(2)}\n\nStake deducted from balance.\nWaiting for match results...\n\nNew Balance: KES ${(balance - stake).toFixed(2)}`)
       }
-    }, 1000)
+
+      const netProfit = totalWinnings - totalStakeAmount
+      setBalance(balance + netProfit)
+      
+      setBetSlip([])
+      setIsSimulating(false)
+
+      await fetchPlayerStats()
+
+      alert(`Simulation Complete!\n\nWins: ${totalWins}\nLosses: ${totalLosses}\nTotal Stake: KES ${totalStakeAmount.toFixed(2)}\nTotal Winnings: KES ${totalWinnings.toFixed(2)}\nNet Profit: KES ${netProfit.toFixed(2)}\n\nNew Balance: KES ${(balance + netProfit).toFixed(2)}`)
+    } else {
+      const newBet: PendingBet = {
+        id: Date.now().toString(),
+        selections: [...betSlip],
+        stake: stake,
+        potentialWin: calculatePotentialWin(),
+        placedAt: new Date()
+      }
+      
+      setBalance(balance - stake)
+      setPendingBets([...pendingBets, newBet])
+      setBetSlip([])
+      setIsSimulating(false)
+      
+      alert(`Bet Placed!\n\nYour bet has been placed successfully.\nStake: KES ${stake.toFixed(2)}\nPotential Win: KES ${calculatePotentialWin().toFixed(2)}\n\nStake deducted from balance.\nWaiting for match results...\n\nNew Balance: KES ${(balance - stake).toFixed(2)}`)
+    }
   }
 
   const settleBet = (betId: string, won: boolean) => {
@@ -368,6 +485,7 @@ function App() {
 
   useEffect(() => {
     fetchLeagues()
+    fetchPlayerStats()
   }, [])
 
   useEffect(() => {
@@ -403,46 +521,77 @@ function App() {
     <div className="min-h-screen bg-gray-900">
       {/* Header */}
       <header className="bg-red-600 text-white p-4 shadow-lg">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <TrendingUp size={32} />
-            <h1 className="text-2xl font-bold">Super Bet</h1>
-            <div className="flex flex-col ml-2">
-              {requestsRemaining !== null && (
-                <span className="text-xs opacity-70">
-                  API: {requestsRemaining} requests left
-                </span>
-              )}
-              {lastFetch > 0 && (
-                <span className="text-xs opacity-60">
-                  Updated {getTimeSinceLastFetch()}
-                </span>
-              )}
+        <div className="container mx-auto">
+          <div className="flex justify-between items-center mb-2">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={32} />
+              <h1 className="text-2xl font-bold">Super Bet</h1>
+              <div className="flex flex-col ml-2">
+                {requestsRemaining !== null && (
+                  <span className="text-xs opacity-70">
+                    API: {requestsRemaining} requests left
+                  </span>
+                )}
+                {lastFetch > 0 && (
+                  <span className="text-xs opacity-60">
+                    Updated {getTimeSinceLastFetch()}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="bg-red-700 px-4 py-2 rounded-lg">
+                <span className="text-sm opacity-80">Balance</span>
+                <div className="text-xl font-bold">KES {balance.toFixed(2)}</div>
+              </div>
+              <Button 
+                onClick={() => fetchOdds(activeLeagueKey, true)}
+                disabled={isLoading}
+                variant="outline"
+                className="bg-white text-red-600 hover:bg-gray-100"
+              >
+                <RefreshCw size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                {isLoading ? 'Loading...' : 'Refresh'}
+              </Button>
+              <Button 
+                onClick={resetBalance}
+                variant="outline"
+                className="bg-white text-red-600 hover:bg-gray-100"
+              >
+                <RefreshCw size={16} className="mr-2" />
+                Reset
+              </Button>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="bg-red-700 px-4 py-2 rounded-lg">
-              <span className="text-sm opacity-80">Balance</span>
-              <div className="text-xl font-bold">KES {balance.toFixed(2)}</div>
+          {playerStats && (
+            <div className="border-t border-red-700 pt-2 mt-2">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex gap-4">
+                  <span className="opacity-80">Player: {userId.slice(0, 20)}...</span>
+                  <span>Simulations: {playerStats.total_simulations}</span>
+                  <span>Win Rate: {playerStats.win_rate.toFixed(1)}%</span>
+                  <span>RTP (W/L): {playerStats.win_loss_rtp.toFixed(1)}%</span>
+                  {playerStats.total_staked > 0 && (
+                    <>
+                      <span>RTP (Stake): {playerStats.actual_rtp.toFixed(1)}%</span>
+                      <span className={playerStats.total_profit >= 0 ? 'text-green-300' : 'text-red-300'}>
+                        Profit: KES {playerStats.total_profit.toFixed(2)}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <Button 
+                  onClick={fetchPlayerStats}
+                  variant="ghost"
+                  size="sm"
+                  className="text-white hover:text-white hover:bg-red-700 h-6 px-2"
+                >
+                  <RefreshCw size={12} className="mr-1" />
+                  Refresh Stats
+                </Button>
+              </div>
             </div>
-            <Button 
-              onClick={() => fetchOdds(activeLeagueKey, true)}
-              disabled={isLoading}
-              variant="outline"
-              className="bg-white text-red-600 hover:bg-gray-100"
-            >
-              <RefreshCw size={16} className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-              {isLoading ? 'Loading...' : 'Refresh'}
-            </Button>
-            <Button 
-              onClick={resetBalance}
-              variant="outline"
-              className="bg-white text-red-600 hover:bg-gray-100"
-            >
-              <RefreshCw size={16} className="mr-2" />
-              Reset
-            </Button>
-          </div>
+          )}
         </div>
       </header>
 
