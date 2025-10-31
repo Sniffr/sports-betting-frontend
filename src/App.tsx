@@ -90,11 +90,30 @@ interface SimulationEvent {
   player: string | null
 }
 
-interface SimulationResult {
+interface MatchSimulationResult {
+  match_id: string
   home_team: string
   away_team: string
   final_score: { [key: string]: number }
+  events: SimulationEvent[]
+  match_stats: {
+    possession: { [key: string]: number }
+    shots: { [key: string]: number }
+    corners: { [key: string]: number }
+    fouls: { [key: string]: number }
+    total_goals: number
+  }
+}
+
+interface SimulationResult {
+  user_id: string
+  matches: MatchSimulationResult[]
   bet_results: Array<{
+    match_id: string
+    home_team: string
+    away_team: string
+    home_score: number
+    away_score: number
     market: string
     outcome: string
     stake?: number
@@ -105,18 +124,14 @@ interface SimulationResult {
     profit?: number
     explanation: string
   }>
-  total_stake?: number
-  total_payout?: number
-  total_profit?: number
   bet_slip_won: boolean
-  events: SimulationEvent[]
-  match_stats: {
-    possession: { [key: string]: number }
-    shots: { [key: string]: number }
-    corners: { [key: string]: number }
-    fouls: { [key: string]: number }
-    total_goals: number
-  }
+  total_selections: number
+  winning_selections: number
+  total_odds: number
+  stake: number
+  potential_payout: number
+  actual_payout: number
+  profit: number
   simulation_metadata: {
     rtp: number
     volatility: string
@@ -1149,7 +1164,7 @@ function App() {
                                     {bet.home_team} vs {bet.away_team}
                                   </div>
                                   <div className="text-white font-medium">
-                                    {bet.market}: {bet.outcome} @ {bet.odds.toFixed(2)}x
+                                    {bet.market}: {bet.outcome} @ {bet.odds ? bet.odds.toFixed(2) : 'N/A'}x
                                   </div>
                                   <div className="text-sm text-gray-400 mt-1">
                                     Final Score: {bet.home_score} - {bet.away_score}
@@ -1205,7 +1220,7 @@ function App() {
                                 {result.matches.map((match, matchIdx) => (
                                   <div key={matchIdx} className="border-b border-gray-700 last:border-0 pb-4 last:pb-0">
                                     <h5 className="text-white font-bold mb-2">
-                                      {match.home_team} {match.home_score} - {match.away_score} {match.away_team}
+                                      {match.home_team} {match.final_score[match.home_team]} - {match.final_score[match.away_team]} {match.away_team}
                                     </h5>
                                     
                                     <div className="bg-gray-900 rounded p-3 mb-3">
