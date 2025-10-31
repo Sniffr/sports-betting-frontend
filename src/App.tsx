@@ -239,11 +239,11 @@ function App() {
     if (market === 'h2h') {
       selectionText = side === 'home' ? match.homeTeam : side === 'draw' ? 'Draw' : match.awayTeam
     } else if (market === 'spreads') {
-      const displayPoint = side === 'home' ? point! : -point!
+      const displayPoint = side === 'home' ? (point || 0) : -(point || 0)
       const sign = displayPoint >= 0 ? '+' : ''
       selectionText = `${side === 'home' ? match.homeTeam : match.awayTeam} ${sign}${displayPoint.toFixed(1)}`
     } else if (market === 'totals') {
-      selectionText = `${side === 'over' ? 'Over' : 'Under'} ${point}`
+      selectionText = `${side === 'over' ? 'Over' : 'Under'} ${point || 0}`
     }
     
     const newSelection: Selection = {
