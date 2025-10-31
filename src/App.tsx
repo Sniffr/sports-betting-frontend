@@ -733,7 +733,7 @@ function App() {
                           className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-3 font-bold transition"
                         >
                           <div className="text-xs mb-1">1</div>
-                          <div>{match.h2h.home.toFixed(2)}</div>
+                          <div>{(match.h2h?.home || 0).toFixed(2)}</div>
                         </button>
                         {match.h2h.draw ? (
                           <button
@@ -741,7 +741,7 @@ function App() {
                             className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-3 font-bold transition"
                           >
                             <div className="text-xs mb-1">X</div>
-                            <div>{match.h2h.draw.toFixed(2)}</div>
+                            <div>{(match.h2h?.draw || 0).toFixed(2)}</div>
                           </button>
                         ) : (
                           <div className="bg-gray-700 rounded-lg p-3 flex items-center justify-center">
@@ -753,7 +753,7 @@ function App() {
                           className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-3 font-bold transition"
                         >
                           <div className="text-xs mb-1">2</div>
-                          <div>{match.h2h.away.toFixed(2)}</div>
+                          <div>{(match.h2h?.away || 0).toFixed(2)}</div>
                         </button>
                       </div>
                     </div>
@@ -778,14 +778,14 @@ function App() {
                           className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg p-3 font-bold transition text-sm"
                         >
                           <div className="text-xs mb-1">Over {match.totals.point}</div>
-                          <div>{match.totals.over.toFixed(2)}</div>
+                          <div>{(match.totals?.over || 0).toFixed(2)}</div>
                         </button>
                         <button
                           onClick={() => addToBetSlip(match, 'totals', 'under', match.totals!.under, match.totals!.point)}
                           className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg p-3 font-bold transition text-sm"
                         >
                           <div className="text-xs mb-1">Under {match.totals.point}</div>
-                          <div>{match.totals.under.toFixed(2)}</div>
+                          <div>{(match.totals?.under || 0).toFixed(2)}</div>
                         </button>
                       </div>
                     </div>
@@ -868,7 +868,7 @@ function App() {
                             <X size={16} />
                           </button>
                         </div>
-                        <div className="text-green-400 font-bold">{selection.odds.toFixed(2)}</div>
+                        <div className="text-green-400 font-bold">{(selection?.odds || 0).toFixed(2)}</div>
                       </div>
                     ))}
 
@@ -965,10 +965,10 @@ function App() {
                   {pendingBets.map(bet => (
                     <div key={bet.id} className="bg-gray-700 p-3 rounded-lg">
                       <div className="space-y-2 mb-3">
-                        {bet.selections.map(sel => (
-                          <div key={sel.id} className="text-sm">
-                            <div className="text-white font-medium">{sel.selection}</div>
-                            <div className="text-gray-400 text-xs">{sel.match} @ {sel.odds.toFixed(2)}</div>
+                        {bet.selections.map((sel, idx) => (
+                          <div key={sel?.id || idx} className="text-sm">
+                            <div className="text-white font-medium">{sel?.selection || 'Unknown'}</div>
+                            <div className="text-gray-400 text-xs">{sel?.match || 'Unknown Match'} @ {(sel?.odds || 0).toFixed(2)}</div>
                           </div>
                         ))}
                       </div>
@@ -1038,13 +1038,15 @@ function App() {
                       <div className="bg-gray-800 rounded p-4 mb-4">
                         <h4 className="text-lg font-semibold text-white mb-3">Your Betslip</h4>
                         {result.selections && result.selections.map((sel, selIdx) => {
-                          const betResult = result.bet_results[selIdx]
+                          const betResult = result.bet_results?.[selIdx]
                           return (
                             <div key={selIdx} className="mb-2 pb-2 border-b border-gray-700 last:border-0">
                               <div className="flex justify-between items-center">
                                 <div>
-                                  <div className="text-white font-medium">{sel.selection}</div>
-                                  <div className="text-sm text-gray-400">{sel.match} @ {sel.odds.toFixed(2)}x</div>
+                                  <div className="text-white font-medium">{sel?.selection || 'Unknown'}</div>
+                                  <div className="text-sm text-gray-400">
+                                    {sel?.match || 'Unknown Match'} @ {(sel?.odds || 0).toFixed(2)}x
+                                  </div>
                                 </div>
                                 <div className={`font-bold ${betResult?.won ? 'text-green-400' : 'text-red-400'}`}>
                                   {betResult?.won ? '✓' : '✗'}
