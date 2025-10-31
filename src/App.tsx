@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
 import './App.css'
-import { X, TrendingUp, RefreshCw, LogOut } from 'lucide-react'
+import { X, TrendingUp, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { oddsToScoreProbabilitiesWithTotals } from './utils/oddsConverter'
-import Auth from './components/Auth'
 
 const API_KEY = 'a3b186794403af630516172e9184ef1f'
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -82,90 +81,7 @@ interface PlayerStats {
   total_profit: number
 }
 
-interface SimulationEvent {
-  minute: number
-  event_type: string
-  team: string
-  description: string
-  player: string | null
-}
-
-interface MatchSimulationResult {
-  match_id: string
-  home_team: string
-  away_team: string
-  final_score: { [key: string]: number }
-  events: SimulationEvent[]
-  match_stats: {
-    possession: { [key: string]: number }
-    shots: { [key: string]: number }
-    corners: { [key: string]: number }
-    fouls: { [key: string]: number }
-    total_goals: number
-  }
-}
-
-interface SimulationResult {
-  user_id: string
-  matches: MatchSimulationResult[]
-  bet_results: Array<{
-    match_id: string
-    home_team: string
-    away_team: string
-    home_score: number
-    away_score: number
-    market: string
-    outcome: string
-    stake?: number
-    odds?: number
-    won: boolean
-    outcome_occurred: boolean
-    payout?: number
-    profit?: number
-    explanation: string
-  }>
-  bet_slip_won: boolean
-  total_selections: number
-  winning_selections: number
-  total_odds: number
-  stake: number
-  potential_payout: number
-  actual_payout: number
-  profit: number
-  simulation_metadata: {
-    rtp: number
-    volatility: string
-    seed: number
-    total_events: number
-    number_of_bets: number
-  }
-}
-
-interface BetHistory {
-  id: number
-  user_id: string
-  home_team: string
-  away_team: string
-  final_score_home: number
-  final_score_away: number
-  bet_slip_won: boolean
-  total_stake: number
-  total_payout: number
-  total_profit: number
-  rtp: number
-  timestamp: string
-}
-
-interface StoredUser {
-  userId: string
-  username: string
-  balance: number
-  createdAt: string
-}
-
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [currentUser, setCurrentUser] = useState<StoredUser | null>(null)
   const [balance, setBalance] = useState(50000)
   const [betSlip, setBetSlip] = useState<Selection[]>([])
   const [stake, setStake] = useState(100)
@@ -180,11 +96,14 @@ function App() {
   const [requestsRemaining, setRequestsRemaining] = useState<number | null>(null)
   const [leagues, setLeagues] = useState<League[]>([])
   const [activeLeagueKey, setActiveLeagueKey] = useState<string>('soccer_epl')
+  const [userId, setUserId] = useState<string>(() => {
+    const stored = localStorage.getItem('userId')
+    if (stored) return stored
+    const newId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    localStorage.setItem('userId', newId)
+    return newId
+  })
   const [playerStats, setPlayerStats] = useState<PlayerStats | null>(null)
-  const [simulationResults, setSimulationResults] = useState<SimulationResult[]>([])
-  const [showResults, setShowResults] = useState(false)
-  const [betHistory, setBetHistory] = useState<BetHistory[]>([])
-  const [showBetHistory, setShowBetHistory] = useState(false)
   const [cache, setCache] = useState<Record<string, CachedData>>(() => {
     try {
       return JSON.parse(localStorage.getItem('oddsCache') || '{}')
@@ -192,19 +111,6 @@ function App() {
       return {}
     }
   })
-
-  useEffect(() => {
-    const sessionUserId = localStorage.getItem('currentUserId')
-    if (sessionUserId) {
-      const users = JSON.parse(localStorage.getItem('bettingUsers') || '{}')
-      const user = users[sessionUserId]
-      if (user) {
-        setCurrentUser(user)
-        setBalance(user.balance)
-        setIsAuthenticated(true)
-      }
-    }
-  }, [])
 
   const addToBetSlip = (match: Match, market: 'h2h' | 'spreads' | 'totals', side: 'home' | 'away' | 'draw' | 'over' | 'under', odds: number, point?: number) => {
     let selectionText = ''
@@ -249,46 +155,9 @@ function App() {
     return stake * calculateTotalOdds()
   }
 
-  const handleLogin = (userId: string, _username: string) => {
-    const users = JSON.parse(localStorage.getItem('bettingUsers') || '{}')
-    const user = users[userId]
-    
-    setCurrentUser(user)
-    setBalance(user.balance)
-    setIsAuthenticated(true)
-    localStorage.setItem('currentUserId', userId)
-    
-    fetchPlayerStats(userId)
-  }
-
-  const handleLogout = () => {
-    if (currentUser) {
-      saveUserBalance()
-    }
-    setIsAuthenticated(false)
-    setCurrentUser(null)
-    localStorage.removeItem('currentUserId')
-    setBetSlip([])
-    setPendingBets([])
-    setPlayerStats(null)
-  }
-
-  const saveUserBalance = () => {
-    if (!currentUser) return
-    
-    const users = JSON.parse(localStorage.getItem('bettingUsers') || '{}')
-    if (users[currentUser.userId]) {
-      users[currentUser.userId].balance = balance
-      localStorage.setItem('bettingUsers', JSON.stringify(users))
-    }
-  }
-
-  const fetchPlayerStats = async (userId?: string) => {
-    const id = userId || currentUser?.userId
-    if (!id) return
-    
+  const fetchPlayerStats = async () => {
     try {
-      const response = await fetch(`${SIMULATION_API_URL}/api/players/${id}/stats`)
+      const response = await fetch(`${SIMULATION_API_URL}/api/players/${userId}/stats`)
       if (response.ok) {
         const stats = await response.json()
         setPlayerStats(stats)
@@ -300,26 +169,6 @@ function App() {
       setPlayerStats(null)
     }
   }
-
-  const fetchBetHistory = async () => {
-    if (!currentUser) return
-    
-    try {
-      const response = await fetch(`${SIMULATION_API_URL}/api/simulations?user_id=${currentUser.userId}`)
-      if (response.ok) {
-        const history = await response.json()
-        setBetHistory(history)
-      }
-    } catch (err) {
-      console.error('Failed to fetch bet history:', err)
-    }
-  }
-
-  useEffect(() => {
-    if (isAuthenticated && currentUser) {
-      saveUserBalance()
-    }
-  }, [balance, isAuthenticated, currentUser])
 
   const runSimulation = async () => {
     if (betSlip.length === 0 || stake <= 0) return
@@ -340,8 +189,10 @@ function App() {
         return acc
       }, {} as Record<string, Selection[]>)
 
-      const matchesData = []
-      const betSlipData = []
+      let totalWins = 0
+      let totalLosses = 0
+      let totalStakeAmount = 0
+      let totalWinnings = 0
 
       for (const [matchId, selections] of Object.entries(matchGroups)) {
         const match = matchesMap[matchId]
@@ -356,16 +207,9 @@ function App() {
           match.totals?.under
         )
 
-        matchesData.push({
-          match_id: matchId,
-          home_team: match.homeTeam,
-          away_team: match.awayTeam,
-          score_probabilities: scoreProbabilities
-        })
-
-        for (const sel of selections) {
-          let market: string = sel.market
-          let outcome: string = sel.side
+        const betSlipData = selections.map(sel => {
+          let market = sel.market
+          let outcome = sel.side
 
           if (market === 'h2h') {
             market = '1X2'
@@ -377,68 +221,61 @@ function App() {
             outcome = `${sel.side}_${sel.point}`
           }
 
-          betSlipData.push({
-            match_id: matchId,
-            home_team: match.homeTeam,
-            away_team: match.awayTeam,
+          return {
             market,
             outcome,
+            stake: stake,
             odds: sel.odds
-          })
-        }
-      }
-
-      let totalWins = 0
-      let totalLosses = 0
-      const allResults: any[] = []
-
-      for (let i = 0; i < simulations; i++) {
-        try {
-          const response = await fetch(`${SIMULATION_API_URL}/api/simulate-betslip`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              user_id: currentUser?.userId || 'guest',
-              matches: matchesData,
-              bet_slip: betSlipData,
-              stake: stake,
-              volatility: 'medium',
-              seed: Date.now() + i
-            })
-          })
-
-          if (response.ok) {
-            const result = await response.json()
-            allResults.push(result)
-            
-            if (result.bet_slip_won) {
-              totalWins++
-            } else {
-              totalLosses++
-            }
           }
-        } catch (err) {
-          console.error('Simulation request failed:', err)
+        })
+
+        for (let i = 0; i < simulations; i++) {
+          try {
+            const response = await fetch(`${SIMULATION_API_URL}/api/simulate`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                home_team: match.homeTeam,
+                away_team: match.awayTeam,
+                score_probabilities: scoreProbabilities,
+                bet_slip: betSlipData,
+                volatility: 'medium',
+                seed: Date.now() + i
+              })
+            })
+
+            if (response.ok) {
+              const result = await response.json()
+              if (result.bet_slip_won) {
+                totalWins++
+                if (result.total_payout) {
+                  totalWinnings += result.total_payout
+                }
+              } else {
+                totalLosses++
+              }
+              if (result.total_stake) {
+                totalStakeAmount += result.total_stake
+              }
+            }
+          } catch (err) {
+            console.error('Simulation request failed:', err)
+          }
         }
       }
 
-      const totalStakeAmount = stake * simulations
-      const totalWinnings = allResults
-        .filter(r => r.bet_slip_won)
-        .reduce((sum, r) => sum + r.actual_payout, 0)
-      
       const netProfit = totalWinnings - totalStakeAmount
       setBalance(balance + netProfit)
       
-      setSimulationResults(allResults)
-      setShowResults(true)
       setBetSlip([])
       setIsSimulating(false)
 
       await fetchPlayerStats()
-      await fetchBetHistory()
+
+      alert(`Simulation Complete!\n\nWins: ${totalWins}\nLosses: ${totalLosses}\nTotal Stake: KES ${totalStakeAmount.toFixed(2)}\nTotal Winnings: KES ${totalWinnings.toFixed(2)}\nNet Profit: KES ${netProfit.toFixed(2)}\n\nNew Balance: KES ${(balance + netProfit).toFixed(2)}`)
     } else {
       const newBet: PendingBet = {
         id: Date.now().toString(),
@@ -680,12 +517,9 @@ function App() {
     return `${minutes}m ago`
   }
 
-  if (!isAuthenticated) {
-    return <Auth onLogin={handleLogin} />
-  }
-
   return (
     <div className="min-h-screen bg-gray-900">
+      {/* Header */}
       <header className="bg-red-600 text-white p-4 shadow-lg">
         <div className="container mx-auto">
           <div className="flex justify-between items-center mb-2">
@@ -727,55 +561,34 @@ function App() {
                 <RefreshCw size={16} className="mr-2" />
                 Reset
               </Button>
-              <Button 
-                onClick={handleLogout}
-                variant="outline"
-                className="bg-white text-red-600 hover:bg-gray-100"
-              >
-                <LogOut size={16} className="mr-2" />
-                Logout
-              </Button>
             </div>
           </div>
           {playerStats && (
             <div className="border-t border-red-700 pt-2 mt-2">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex gap-4">
-                  <span className="opacity-80">Player: {currentUser?.username || 'Guest'}</span>
-                  <span>Simulations: {playerStats.total_simulations || 0}</span>
-                  <span>Win Rate: {(playerStats.win_rate || 0).toFixed(1)}%</span>
-                  <span>RTP (W/L): {(playerStats.win_loss_rtp || 0).toFixed(1)}%</span>
-                  {(playerStats.total_staked || 0) > 0 && (
+                  <span className="opacity-80">Player: {userId.slice(0, 20)}...</span>
+                  <span>Simulations: {playerStats.total_simulations}</span>
+                  <span>Win Rate: {playerStats.win_rate.toFixed(1)}%</span>
+                  <span>RTP (W/L): {playerStats.win_loss_rtp.toFixed(1)}%</span>
+                  {playerStats.total_staked > 0 && (
                     <>
-                      <span>RTP (Stake): {(playerStats.actual_rtp || 0).toFixed(1)}%</span>
-                      <span className={(playerStats.total_profit || 0) >= 0 ? 'text-green-300' : 'text-red-300'}>
-                        Profit: KES {(playerStats.total_profit || 0).toFixed(2)}
+                      <span>RTP (Stake): {playerStats.actual_rtp.toFixed(1)}%</span>
+                      <span className={playerStats.total_profit >= 0 ? 'text-green-300' : 'text-red-300'}>
+                        Profit: KES {playerStats.total_profit.toFixed(2)}
                       </span>
                     </>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <Button 
-                    onClick={async () => {
-                      await fetchBetHistory()
-                      setShowBetHistory(true)
-                    }}
-                    variant="ghost"
-                    size="sm"
-                    className="text-white hover:text-white hover:bg-red-700 h-6 px-2"
-                  >
-                    My Bets
-                  </Button>
-                  <Button 
-                    onClick={() => fetchPlayerStats()}
-                    variant="ghost"
-                    size="sm"
-                    className="text-white hover:text-white hover:bg-red-700 h-6 px-2"
-                  >
-                    <RefreshCw size={12} className="mr-1" />
-                    Refresh Stats
-                  </Button>
-                </div>
+                <Button 
+                  onClick={fetchPlayerStats}
+                  variant="ghost"
+                  size="sm"
+                  className="text-white hover:text-white hover:bg-red-700 h-6 px-2"
+                >
+                  <RefreshCw size={12} className="mr-1" />
+                  Refresh Stats
+                </Button>
               </div>
             </div>
           )}
@@ -1120,226 +933,6 @@ function App() {
               </Card>
             )}
           </div>
-
-          {showResults && simulationResults.length > 0 && (
-            <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 overflow-y-auto">
-              <div className="bg-gray-800 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center">
-                  <h2 className="text-2xl font-bold text-white">Simulation Results</h2>
-                  <Button onClick={() => setShowResults(false)} className="bg-red-600 hover:bg-red-700">
-                    Close
-                  </Button>
-                </div>
-                
-                <div className="p-4 space-y-4">
-                  {simulationResults.map((result, idx) => (
-                    <Card key={idx} className="bg-gray-900 border-gray-700">
-                      <div className="p-4">
-                        <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-700">
-                          <div>
-                            <h3 className="text-2xl font-bold text-white mb-1">Betslip #{idx + 1}</h3>
-                            <div className="text-sm text-gray-400">
-                              {result.total_selections} Selection{result.total_selections > 1 ? 's' : ''}
-                              {' • '}
-                              Combined Odds: {result.total_odds.toFixed(2)}x
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className={`text-3xl font-bold mb-1 ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
-                              {result.bet_slip_won ? '✓ WON' : '✗ LOST'}
-                            </div>
-                            <div className="text-sm text-gray-400">
-                              {result.winning_selections}/{result.total_selections} Correct
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="bg-gray-800 rounded p-4 mb-4">
-                          <h4 className="text-lg font-semibold text-white mb-3">Selections</h4>
-                          {result.bet_results.map((bet, betIdx) => (
-                            <div key={betIdx} className="mb-3 pb-3 border-b border-gray-700 last:border-0 last:pb-0 last:mb-0">
-                              <div className="flex justify-between items-start mb-2">
-                                <div className="flex-1">
-                                  <div className="text-white font-bold text-base mb-1">
-                                    {bet.home_team} vs {bet.away_team}
-                                  </div>
-                                  <div className="text-white font-medium">
-                                    {bet.market}: {bet.outcome} @ {bet.odds ? bet.odds.toFixed(2) : 'N/A'}x
-                                  </div>
-                                  <div className="text-sm text-gray-400 mt-1">
-                                    Final Score: {bet.home_score} - {bet.away_score}
-                                  </div>
-                                </div>
-                                <div className="text-right ml-4">
-                                  <div className={`font-bold text-lg ${bet.won ? 'text-green-400' : 'text-red-400'}`}>
-                                    {bet.won ? '✓' : '✗'}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="bg-gray-800 rounded p-4">
-                          <h4 className="text-lg font-semibold text-white mb-3">Betslip Summary</h4>
-                          <div className="space-y-2">
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">Stake:</span>
-                              <span className="text-white font-medium">KES {result.stake.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">Total Odds:</span>
-                              <span className="text-white font-medium">{result.total_odds.toFixed(2)}x</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400">Potential Payout:</span>
-                              <span className="text-blue-400 font-medium">KES {result.potential_payout.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between pt-2 border-t border-gray-700">
-                              <span className="text-gray-400 font-semibold">Actual Payout:</span>
-                              <span className={`font-bold ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
-                                KES {result.actual_payout.toFixed(2)}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-400 font-semibold">Profit/Loss:</span>
-                              <span className={`font-bold ${result.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                KES {result.profit.toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {result.matches && result.matches.length > 0 && (
-                          <div className="mt-4">
-                            <details className="bg-gray-800 rounded">
-                              <summary className="p-4 cursor-pointer text-white font-medium hover:bg-gray-750">
-                                View Match Details & Events
-                              </summary>
-                              <div className="p-4 space-y-4 border-t border-gray-700">
-                                {result.matches.map((match, matchIdx) => (
-                                  <div key={matchIdx} className="border-b border-gray-700 last:border-0 pb-4 last:pb-0">
-                                    <h5 className="text-white font-bold mb-2">
-                                      {match.home_team} {match.final_score[match.home_team]} - {match.final_score[match.away_team]} {match.away_team}
-                                    </h5>
-                                    
-                                    <div className="bg-gray-900 rounded p-3 mb-3">
-                                      <h6 className="text-sm font-semibold text-gray-400 mb-2">Statistics</h6>
-                                      <div className="grid grid-cols-2 gap-2 text-sm">
-                                        <div>
-                                          <span className="text-gray-400">Possession:</span>
-                                          <span className="text-white ml-2">
-                                            {match.match_stats.possession[match.home_team].toFixed(1)}% - 
-                                            {match.match_stats.possession[match.away_team].toFixed(1)}%
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-gray-400">Shots:</span>
-                                          <span className="text-white ml-2">
-                                            {match.match_stats.shots[match.home_team]} - {match.match_stats.shots[match.away_team]}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <div className="bg-gray-900 rounded p-3">
-                                      <h6 className="text-sm font-semibold text-gray-400 mb-2">Events</h6>
-                                      <div className="max-h-40 overflow-y-auto space-y-1">
-                                        {match.events.slice(0, 10).map((event, eventIdx) => (
-                                          <div key={eventIdx} className="text-sm flex">
-                                            <span className="text-gray-500 w-12">{event.minute}'</span>
-                                            <span className={`flex-1 ${
-                                              event.event_type === 'goal' ? 'text-green-400 font-bold' :
-                                              event.event_type === 'kickoff' || event.event_type === 'halftime' || event.event_type === 'fulltime' ? 'text-blue-400' :
-                                              'text-gray-300'
-                                            }`}>
-                                              {event.description}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </details>
-                          </div>
-                        )}
-                      </div>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showBetHistory && (
-            <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 overflow-y-auto">
-              <div className="bg-gray-800 rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto">
-                <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center">
-                  <h2 className="text-2xl font-bold text-white">My Bets</h2>
-                  <Button onClick={() => setShowBetHistory(false)} className="bg-red-600 hover:bg-red-700">
-                    Close
-                  </Button>
-                </div>
-                
-                <div className="p-4">
-                  {betHistory.length === 0 ? (
-                    <div className="text-center text-gray-400 py-8">
-                      No betting history found. Place some bets to see them here!
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {betHistory.map((bet) => (
-                        <Card key={bet.id} className="bg-gray-900 border-gray-700">
-                          <div className="p-4">
-                            <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <h3 className="text-lg font-bold text-white">
-                                  {bet.home_team} vs {bet.away_team}
-                                </h3>
-                                <div className="text-sm text-gray-400">
-                                  {new Date(bet.timestamp).toLocaleString()}
-                                </div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-xl font-bold text-white">
-                                  {bet.final_score_home} - {bet.final_score_away}
-                                </div>
-                                <div className={`text-sm font-bold ${bet.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
-                                  {bet.bet_slip_won ? '✓ WON' : '✗ LOST'}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-gray-700">
-                              <div>
-                                <div className="text-xs text-gray-400">Stake</div>
-                                <div className="text-white font-medium">KES {bet.total_stake.toFixed(2)}</div>
-                              </div>
-                              <div>
-                                <div className="text-xs text-gray-400">Payout</div>
-                                <div className="text-green-400 font-medium">KES {bet.total_payout.toFixed(2)}</div>
-                              </div>
-                              <div>
-                                <div className="text-xs text-gray-400">Profit</div>
-                                <div className={`font-medium ${bet.total_profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                  KES {bet.total_profit.toFixed(2)}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-xs text-gray-400">RTP</div>
-                                <div className="text-white font-medium">{(bet.rtp * 100).toFixed(1)}%</div>
-                              </div>
-                            </div>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
