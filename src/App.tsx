@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import './App.css'
-import { X, TrendingUp, RefreshCw } from 'lucide-react'
+import { X, TrendingUp, RefreshCw, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { oddsToScoreProbabilitiesWithTotals } from './utils/oddsConverter'
+import { Auth } from './components/Auth'
 
 const API_KEY = 'a3b186794403af630516172e9184ef1f'
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
@@ -135,7 +136,16 @@ interface BetHistory {
 }
 
 function App() {
-  const [balance, setBalance] = useState(50000)
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem('isAuthenticated') === 'true'
+  })
+  const [userId, setUserId] = useState(() => {
+    return localStorage.getItem('userId') || ''
+  })
+  const [balance, setBalance] = useState(() => {
+    const stored = localStorage.getItem('balance')
+    return stored ? parseFloat(stored) : 50000
+  })
   const [betSlip, setBetSlip] = useState<Selection[]>([])
   const [stake, setStake] = useState(100)
   const [simulations, setSimulations] = useState(1)
@@ -149,13 +159,6 @@ function App() {
   const [requestsRemaining, setRequestsRemaining] = useState<number | null>(null)
   const [leagues, setLeagues] = useState<League[]>([])
   const [activeLeagueKey, setActiveLeagueKey] = useState<string>('soccer_epl')
-  const userId = (() => {
-    const stored = localStorage.getItem('userId')
-    if (stored) return stored
-    const newId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    localStorage.setItem('userId', newId)
-    return newId
-  })()
   const [playerStats, setPlayerStats] = useState<PlayerStats | null>(null)
   const [simulationResults, setSimulationResults] = useState<SimulationResult[]>([])
   const [showResults, setShowResults] = useState(false)
@@ -168,6 +171,47 @@ function App() {
       return {}
     }
   })
+
+  useEffect(() => {
+    localStorage.setItem('balance', balance.toString())
+  }, [balance])
+
+  const handleLogin = (username: string) => {
+    const newUserId = username
+    setUserId(newUserId)
+    setIsAuthenticated(true)
+    localStorage.setItem('userId', newUserId)
+    localStorage.setItem('isAuthenticated', 'true')
+    
+    const storedBalance = localStorage.getItem(`balance_${newUserId}`)
+    const userBalance = storedBalance ? parseFloat(storedBalance) : 50000
+    setBalance(userBalance)
+  }
+
+  const handleRegister = (username: string) => {
+    const newUserId = username
+    setUserId(newUserId)
+    setIsAuthenticated(true)
+    localStorage.setItem('userId', newUserId)
+    localStorage.setItem('isAuthenticated', 'true')
+    localStorage.setItem(`balance_${newUserId}`, '50000')
+    setBalance(50000)
+  }
+
+  const handleLogout = () => {
+    if (userId) {
+      localStorage.setItem(`balance_${userId}`, balance.toString())
+    }
+    setIsAuthenticated(false)
+    setUserId('')
+    localStorage.removeItem('isAuthenticated')
+    localStorage.removeItem('userId')
+    setBetSlip([])
+    setPendingBets([])
+    setSimulationResults([])
+    setBetHistory([])
+    setPlayerStats(null)
+  }
 
   const addToBetSlip = (match: Match, market: 'h2h' | 'spreads' | 'totals', side: 'home' | 'away' | 'draw' | 'over' | 'under', odds: number, point?: number) => {
     let selectionText = ''
@@ -687,6 +731,10 @@ function App() {
     return `${minutes}m ago`
   }
 
+  if (!isAuthenticated) {
+    return <Auth onLogin={handleLogin} onRegister={handleRegister} />
+  }
+
   return (
     <div className="min-h-screen bg-gray-900">
       {/* Header */}
@@ -740,6 +788,14 @@ function App() {
                 className="bg-white text-red-600 hover:bg-gray-100"
               >
                 My Bets
+              </Button>
+              <Button 
+                onClick={handleLogout}
+                variant="outline"
+                className="bg-white text-red-600 hover:bg-gray-100"
+              >
+                <LogOut size={16} className="mr-2" />
+                Logout
               </Button>
             </div>
           </div>
