@@ -637,14 +637,14 @@ function App() {
               <div className="flex items-center justify-between text-xs">
                 <div className="flex gap-4">
                   <span className="opacity-80">Player: {userId.slice(0, 20)}...</span>
-                  <span>Simulations: {playerStats.total_simulations}</span>
-                  <span>Win Rate: {playerStats.win_rate.toFixed(1)}%</span>
-                  <span>RTP (W/L): {playerStats.win_loss_rtp.toFixed(1)}%</span>
-                  {playerStats.total_staked > 0 && (
+                  <span>Simulations: {playerStats.total_simulations || 0}</span>
+                  <span>Win Rate: {(playerStats.win_rate || 0).toFixed(1)}%</span>
+                  <span>RTP (W/L): {(playerStats.win_loss_rtp || 0).toFixed(1)}%</span>
+                  {(playerStats.total_staked || 0) > 0 && (
                     <>
-                      <span>RTP (Stake): {playerStats.actual_rtp.toFixed(1)}%</span>
-                      <span className={playerStats.total_profit >= 0 ? 'text-green-300' : 'text-red-300'}>
-                        Profit: KES {playerStats.total_profit.toFixed(2)}
+                      <span>RTP (Stake): {(playerStats.actual_rtp || 0).toFixed(1)}%</span>
+                      <span className={(playerStats.total_profit || 0) >= 0 ? 'text-green-300' : 'text-red-300'}>
+                        Profit: KES {(playerStats.total_profit || 0).toFixed(2)}
                       </span>
                     </>
                   )}
@@ -1062,7 +1062,7 @@ function App() {
                           <div className="grid grid-cols-2 gap-3">
                             <div>
                               <div className="text-sm text-gray-400">Stake</div>
-                              <div className="text-white font-medium">KES {result.total_stake.toFixed(2)}</div>
+                              <div className="text-white font-medium">KES {(result.total_stake || 0).toFixed(2)}</div>
                             </div>
                             <div>
                               <div className="text-sm text-gray-400">Payout</div>
@@ -1129,21 +1129,21 @@ function App() {
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-gray-700">
                             <div>
                               <div className="text-xs text-gray-400">Stake</div>
-                              <div className="text-white font-medium">KES {bet.total_stake.toFixed(2)}</div>
+                              <div className="text-white font-medium">KES {(bet.total_stake || 0).toFixed(2)}</div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-400">Payout</div>
-                              <div className="text-green-400 font-medium">KES {bet.total_payout.toFixed(2)}</div>
+                              <div className="text-green-400 font-medium">KES {(bet.total_payout || 0).toFixed(2)}</div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-400">Profit</div>
-                              <div className={`font-medium ${bet.total_profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                KES {bet.total_profit.toFixed(2)}
+                              <div className={`font-medium ${(bet.total_profit || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                KES {(bet.total_profit || 0).toFixed(2)}
                               </div>
                             </div>
                             <div>
                               <div className="text-xs text-gray-400">RTP</div>
-                              <div className="text-white font-medium">{(bet.rtp * 100).toFixed(1)}%</div>
+                              <div className="text-white font-medium">{((bet.rtp || 0) * 100).toFixed(1)}%</div>
                             </div>
                           </div>
                         </div>
