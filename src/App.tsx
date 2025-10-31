@@ -96,13 +96,13 @@ function App() {
   const [requestsRemaining, setRequestsRemaining] = useState<number | null>(null)
   const [leagues, setLeagues] = useState<League[]>([])
   const [activeLeagueKey, setActiveLeagueKey] = useState<string>('soccer_epl')
-  const [userId, setUserId] = useState<string>(() => {
+  const userId = (() => {
     const stored = localStorage.getItem('userId')
     if (stored) return stored
     const newId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     localStorage.setItem('userId', newId)
     return newId
-  })
+  })()
   const [playerStats, setPlayerStats] = useState<PlayerStats | null>(null)
   const [cache, setCache] = useState<Record<string, CachedData>>(() => {
     try {
@@ -208,15 +208,15 @@ function App() {
         )
 
         const betSlipData = selections.map(sel => {
-          let market = sel.market
-          let outcome = sel.side
+          let market: string = sel.market
+          let outcome: string = sel.side
 
-          if (market === 'h2h') {
+          if (sel.market === 'h2h') {
             market = '1X2'
             if (sel.side === 'home') outcome = '1'
             else if (sel.side === 'draw') outcome = 'X'
             else if (sel.side === 'away') outcome = '2'
-          } else if (market === 'totals') {
+          } else if (sel.market === 'totals') {
             market = 'over_under'
             outcome = `${sel.side}_${sel.point}`
           }
