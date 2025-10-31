@@ -1222,13 +1222,78 @@ function App() {
                               {result.bet_slip_won ? '✓ BETSLIP WON' : '✗ BETSLIP LOST'}
                             </div>
                           </div>
-                          <div className="space-y-2 mb-3">
-                            {result.matches.map((match, mIdx) => (
-                              <div key={mIdx} className="bg-gray-800 rounded p-3">
-                                <div className="flex justify-between items-center">
-                                  <div className="text-white font-medium">{match.home_team} vs {match.away_team}</div>
-                                  <div className="text-xl font-bold text-white">{match.home_score} - {match.away_score}</div>
+                          <div className="space-y-4 mb-3">
+                            {result.matches.map((match: any, mIdx: number) => (
+                              <div key={mIdx} className="bg-gray-800 rounded p-4 space-y-3">
+                                <div className="flex justify-between items-center border-b border-gray-700 pb-2">
+                                  <div className="text-white font-medium text-lg">{match.home_team} vs {match.away_team}</div>
+                                  <div className="text-2xl font-bold text-white">{match.home_score} - {match.away_score}</div>
                                 </div>
+
+                                {match.events && match.events.length > 0 && (
+                                  <div>
+                                    <h5 className="text-sm font-semibold text-gray-400 mb-2">Match Playthrough</h5>
+                                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                                      {match.events.filter((event: any) => 
+                                        event.event_type === 'goal' || event.event_type === 'kickoff' || event.event_type === 'halftime' || event.event_type === 'fulltime'
+                                      ).map((event: any, eventIdx: number) => (
+                                        <div key={eventIdx} className="flex items-start gap-2 text-xs">
+                                          <div className="text-gray-400 font-mono w-10 flex-shrink-0">{event.minute}'</div>
+                                          <div className="flex-1">
+                                            {event.event_type === 'goal' && (
+                                              <div className="text-green-400 font-medium">⚽ {event.description}</div>
+                                            )}
+                                            {event.event_type === 'kickoff' && (
+                                              <div className="text-blue-400">{event.description}</div>
+                                            )}
+                                            {event.event_type === 'halftime' && (
+                                              <div className="text-yellow-400">{event.description}</div>
+                                            )}
+                                            {event.event_type === 'fulltime' && (
+                                              <div className="text-purple-400 font-bold">{event.description}</div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {match.match_stats && (
+                                  <div>
+                                    <h5 className="text-sm font-semibold text-gray-400 mb-2">Statistics</h5>
+                                    <div className="space-y-2">
+                                      {match.match_stats.possession && (
+                                        <div>
+                                          <div className="flex justify-between text-xs mb-1">
+                                            <span className="text-gray-400">Possession</span>
+                                            <span className="text-white">{match.match_stats.possession[match.home_team]?.toFixed(0)}% - {match.match_stats.possession[match.away_team]?.toFixed(0)}%</span>
+                                          </div>
+                                          <div className="w-full bg-gray-700 rounded-full h-1.5 overflow-hidden flex">
+                                            <div 
+                                              className="bg-blue-500 h-full" 
+                                              style={{width: `${match.match_stats.possession[match.home_team] || 50}%`}}
+                                            ></div>
+                                            <div 
+                                              className="bg-red-500 h-full" 
+                                              style={{width: `${match.match_stats.possession[match.away_team] || 50}%`}}
+                                            ></div>
+                                          </div>
+                                        </div>
+                                      )}
+                                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                        <div className="text-white">{match.match_stats.shots?.[match.home_team] || 0}</div>
+                                        <div className="text-gray-400">Shots</div>
+                                        <div className="text-white">{match.match_stats.shots?.[match.away_team] || 0}</div>
+                                      </div>
+                                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                        <div className="text-white">{match.match_stats.corners?.[match.home_team] || 0}</div>
+                                        <div className="text-gray-400">Corners</div>
+                                        <div className="text-white">{match.match_stats.corners?.[match.away_team] || 0}</div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
