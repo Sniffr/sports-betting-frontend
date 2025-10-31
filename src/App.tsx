@@ -93,17 +93,30 @@ interface BetResult {
   explanation: string
 }
 
-interface SimulationResult {
+interface MatchResult {
+  match_id: string
   home_team: string
   away_team: string
-  final_score: { [key: string]: number }
+  home_score: number
+  away_score: number
+}
+
+interface SimulationResult {
+  home_team?: string
+  away_team?: string
+  final_score?: { [key: string]: number }
+  matches?: MatchResult[]
   bet_results: BetResult[]
   bet_slip_won: boolean
   total_stake?: number
   total_payout?: number
+  actual_payout?: number
   total_profit?: number
+  profit?: number
+  stake?: number
   timestamp?: string
   selections: Selection[]
+  total_odds?: number
 }
 
 interface BetHistory {
@@ -245,7 +258,9 @@ function App() {
         return acc
       }, {} as Record<string, Selection[]>)
 
-      if (Object.keys(matchGroups).length === 1) {
+      const numMatches = Object.keys(matchGroups).length
+
+      if (numMatches === 1) {
         const matchId = Object.keys(matchGroups)[0]
         const match = matchesMap[matchId]
         const selections = matchGroups[matchId]
@@ -332,8 +347,104 @@ function App() {
         await fetchPlayerStats()
         await fetchBetHistory()
       } else {
+        const matchesData = Object.keys(matchGroups).map((matchId, index) => {
+          const match = matchesMap[matchId]
+          if (!match || !match.h2h) return null
+
+          const scoreProbabilities = oddsToScoreProbabilitiesWithTotals(
+            match.h2h.home,
+            match.h2h.draw,
+            match.h2h.away,
+            match.totals?.point,
+            match.totals?.over,
+            match.totals?.under
+          )
+
+          return {
+            match_id: `match_${index + 1}`,
+            home_team: match.homeTeam,
+            away_team: match.awayTeam,
+            score_probabilities: scoreProbabilities,
+            matchId: matchId
+          }
+        }).filter(m => m !== null)
+
+        const betSlipSelections = betSlip.map(sel => {
+          const matchIndex = matchesData.findIndex(m => m?.matchId === sel.matchId)
+          if (matchIndex === -1) return null
+
+          let market: string = sel.market
+          let outcome: string = sel.side
+
+          if (sel.market === 'h2h') {
+            market = '1X2'
+            if (sel.side === 'home') outcome = '1'
+            else if (sel.side === 'draw') outcome = 'X'
+            else if (sel.side === 'away') outcome = '2'
+          } else if (sel.market === 'totals') {
+            market = 'over_under'
+            outcome = `${sel.side}_${sel.point}`
+          }
+
+          return {
+            match_id: `match_${matchIndex + 1}`,
+            home_team: sel.match.split(' vs ')[0],
+            away_team: sel.match.split(' vs ')[1],
+            market,
+            outcome,
+            odds: sel.odds
+          }
+        }).filter(s => s !== null)
+
+        const results: SimulationResult[] = []
+
+        for (let i = 0; i < simulations; i++) {
+          try {
+            const response = await fetch(`${SIMULATION_API_URL}/api/simulate-multi`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                user_id: userId,
+                matches: matchesData.map(m => ({
+                  match_id: m.match_id,
+                  home_team: m.home_team,
+                  away_team: m.away_team,
+                  score_probabilities: m.score_probabilities
+                })),
+                bet_slip: betSlipSelections,
+                stake: stake,
+                volatility: 'medium',
+                seed: Date.now() + i
+              })
+            })
+
+            if (response.ok) {
+              const result = await response.json()
+              results.push({
+                ...result,
+                selections: [...betSlip],
+                timestamp: new Date().toISOString()
+              })
+            }
+          } catch (err) {
+            console.error('Multi-match simulation request failed:', err)
+          }
+        }
+
+        const totalWinnings = results.reduce((sum, r) => sum + (r.actual_payout || 0), 0)
+        const totalStakeAmount = results.reduce((sum, r) => sum + (r.stake || 0), 0)
+        const netProfit = totalWinnings - totalStakeAmount
+
+        setBalance(balance + netProfit)
+        setSimulationResults(results)
+        setShowResults(true)
+        setBetSlip([])
         setIsSimulating(false)
-        alert('Please select bets from only one match at a time for now.')
+
+        await fetchPlayerStats()
+        await fetchBetHistory()
       }
     } else {
       const newBet: PendingBet = {
@@ -1019,21 +1130,42 @@ function App() {
                 {simulationResults.map((result, idx) => (
                   <Card key={idx} className="bg-gray-900 border-gray-700">
                     <div className="p-4">
-                      <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xl font-bold text-white">
-                          {result.home_team} vs {result.away_team}
-                        </h3>
-                        <div className="text-right">
-                          {result.final_score && (
-                            <div className="text-2xl font-bold text-white">
-                              {result.final_score[result.home_team] || 0} - {result.final_score[result.away_team] || 0}
+                      {result.matches && result.matches.length > 0 ? (
+                        <div className="mb-4">
+                          <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-xl font-bold text-white">Multi-Match Betslip</h3>
+                            <div className={`text-sm font-bold ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
+                              {result.bet_slip_won ? '✓ BETSLIP WON' : '✗ BETSLIP LOST'}
                             </div>
-                          )}
-                          <div className={`text-sm font-bold ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
-                            {result.bet_slip_won ? '✓ BETSLIP WON' : '✗ BETSLIP LOST'}
+                          </div>
+                          <div className="space-y-2 mb-3">
+                            {result.matches.map((match, mIdx) => (
+                              <div key={mIdx} className="bg-gray-800 rounded p-3">
+                                <div className="flex justify-between items-center">
+                                  <div className="text-white font-medium">{match.home_team} vs {match.away_team}</div>
+                                  <div className="text-xl font-bold text-white">{match.home_score} - {match.away_score}</div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-xl font-bold text-white">
+                            {result.home_team} vs {result.away_team}
+                          </h3>
+                          <div className="text-right">
+                            {result.final_score && (
+                              <div className="text-2xl font-bold text-white">
+                                {result.final_score[result.home_team || ''] || 0} - {result.final_score[result.away_team || ''] || 0}
+                              </div>
+                            )}
+                            <div className={`text-sm font-bold ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
+                              {result.bet_slip_won ? '✓ BETSLIP WON' : '✗ BETSLIP LOST'}
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="bg-gray-800 rounded p-4 mb-4">
                         <h4 className="text-lg font-semibold text-white mb-3">Your Betslip</h4>
@@ -1057,25 +1189,31 @@ function App() {
                         })}
                       </div>
 
-                      {result.total_stake && (
+                      {(result.total_stake || result.stake) && (
                         <div className="bg-gray-800 rounded p-4">
                           <div className="grid grid-cols-2 gap-3">
                             <div>
                               <div className="text-sm text-gray-400">Stake</div>
-                              <div className="text-white font-medium">KES {(result.total_stake || 0).toFixed(2)}</div>
+                              <div className="text-white font-medium">KES {(result.total_stake || result.stake || 0).toFixed(2)}</div>
                             </div>
                             <div>
                               <div className="text-sm text-gray-400">Payout</div>
                               <div className={`font-medium ${result.bet_slip_won ? 'text-green-400' : 'text-red-400'}`}>
-                                KES {(result.total_payout || 0).toFixed(2)}
+                                KES {(result.total_payout || result.actual_payout || 0).toFixed(2)}
                               </div>
                             </div>
                             <div>
                               <div className="text-sm text-gray-400">Profit/Loss</div>
-                              <div className={`font-bold ${(result.total_profit || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                KES {(result.total_profit || 0).toFixed(2)}
+                              <div className={`font-bold ${((result.total_profit || result.profit || 0) >= 0) ? 'text-green-400' : 'text-red-400'}`}>
+                                KES {(result.total_profit || result.profit || 0).toFixed(2)}
                               </div>
                             </div>
+                            {result.total_odds && (
+                              <div>
+                                <div className="text-sm text-gray-400">Total Odds</div>
+                                <div className="text-white font-medium">{(result.total_odds || 1).toFixed(2)}x</div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
